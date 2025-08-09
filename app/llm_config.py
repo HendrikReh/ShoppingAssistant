@@ -51,11 +51,18 @@ class LLMConfig:
     def get_dspy_lm(self, task: str = "chat"):
         """Get configured DSPy LM instance for a specific task."""
         import dspy
+        import litellm
         
         self.validate()
         
         model = self.chat_model if task == "chat" else self.eval_model
         temperature = self.chat_temperature if task == "chat" else self.eval_temperature
+        
+        # Handle GPT-5 specific requirements
+        if "gpt-5" in model.lower():
+            temperature = 1.0  # GPT-5 only supports temperature=1.0
+            # Enable dropping unsupported params for GPT-5
+            litellm.drop_params = True
         
         # Configure API base if using proxy
         if self.api_base:
@@ -79,8 +86,15 @@ class LLMConfig:
     def configure_ragas(self) -> None:
         """Configure RAGAS to use the specified LLM for evaluation."""
         import os
+        import litellm
         
         self.validate()
+        
+        # Handle GPT-5 specific requirements
+        if "gpt-5" in self.eval_model.lower():
+            # Enable dropping unsupported params for GPT-5
+            litellm.drop_params = True
+            print("Enabled litellm.drop_params for GPT-5 compatibility")
         
         # RAGAS uses environment variables for LLM configuration
         os.environ["OPENAI_API_KEY"] = self.api_key or ""
@@ -89,6 +103,10 @@ class LLMConfig:
         
         # Set the model for RAGAS
         os.environ["RAGAS_LLM_MODEL"] = f"openai/{self.eval_model}"
+        
+        # Force temperature=1.0 for GPT-5 models
+        if "gpt-5" in self.eval_model.lower():
+            os.environ["RAGAS_LLM_TEMPERATURE"] = "1.0"
         
         print(f"Configured RAGAS with model: {self.eval_model}")
 

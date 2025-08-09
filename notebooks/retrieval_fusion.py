@@ -20,8 +20,8 @@ def _():
     COLLECTION_PRODUCTS = "products_gte_large"
     COLLECTION_REVIEWS = "reviews_gte_large"
     MODEL_NAME = "thenlper/gte-large"
-    # Lightweight cross-encoder suitable for fast reranking on CPU/MPS
-    CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # More accurate cross-encoder with 12 layers for better reranking
+    CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
     VECTOR_SIZE = 1024
 
     mo.md("# Hybrid Retrieval with BM25 + Vectors (RRF)")

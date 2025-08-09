@@ -17,6 +17,7 @@ import hashlib
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
@@ -35,7 +36,7 @@ DATA_REVIEWS = Path("data/100_top_reviews_of_the_top_1000_products.jsonl")
 COLLECTION_PRODUCTS = "products_gte_large"
 COLLECTION_REVIEWS = "reviews_gte_large"
 EMBED_MODEL = "thenlper/gte-large"
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 VECTOR_SIZE = 1024
 
 
@@ -518,6 +519,11 @@ def _ensure_dirs() -> tuple[Path, Path]:
     return results_dir, datasets_dir
 
 
+def _get_timestamp() -> str:
+    """Generate a formatted timestamp for file naming: YYYYMMDD_HHMMSS."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
 def _save_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2))
 
@@ -661,7 +667,7 @@ def eval_search(
                 payloads.append(id_to_review[_id])
         return payloads
 
-    timestamp = str(int(time.time()))
+    timestamp = _get_timestamp()
     out_json = results_dir / f"search_{timestamp}.json"
     out_md = results_dir / f"search_{timestamp}.md"
 
@@ -737,7 +743,27 @@ def eval_search(
                 else f"Evaluated {variant}: no scores"
             )
 
+        # Capture all call parameters
+        call_params = {
+            "command": "eval-search",
+            "timestamp": timestamp,
+            "dataset": str(dataset),
+            "products_path": str(products_path),
+            "reviews_path": str(reviews_path),
+            "top_k": top_k,
+            "rrf_k": rrf_k,
+            "rerank_top_k": rerank_top_k,
+            "variants": variant_list,
+            "max_samples": max_samples,
+            "seed": seed,
+            "samples_loaded": len(queries),
+            "device": device,
+            "embed_model": EMBED_MODEL,
+            "cross_encoder_model": CROSS_ENCODER_MODEL,
+        }
+        
         report = {
+            "call_parameters": call_params,
             "config": {
                 "variants": variant_list,
                 "top_k": top_k,
@@ -763,13 +789,21 @@ def eval_search(
             row = [metric] + [f"{aggregates.get(v, {}).get(metric, float('nan')):.4f}" for v in variant_list]
             rows_md.append(row)
         md_config = (
-            f"- dataset: `{dataset}`\n"
-            f"- samples_used: {len(queries)}\n"
-            f"- variants: {', '.join(variant_list)}\n"
-            f"- top_k={top_k} rrf_k={rrf_k} rerank_top_k={rerank_top_k}\n"
-            f"- device: {device} embed_model: `{EMBED_MODEL}`\n"
+            f"### Call Parameters\n"
+            f"- **Command**: `eval-search`\n"
+            f"- **Timestamp**: {timestamp}\n"
+            f"- **Dataset**: `{dataset}`\n"
+            f"- **Products**: `{products_path}`\n"
+            f"- **Reviews**: `{reviews_path}`\n"
+            f"- **Samples**: requested={max_samples}, loaded={len(queries)}\n"
+            f"- **Variants**: {', '.join(variant_list)}\n"
+            f"- **Search params**: top_k={top_k}, rrf_k={rrf_k}, rerank_top_k={rerank_top_k}\n"
+            f"- **Seed**: {seed}\n"
+            f"- **Device**: {device}\n"
+            f"- **Embed model**: `{EMBED_MODEL}`\n"
+            f"- **Cross-encoder**: `{CROSS_ENCODER_MODEL}`\n"
         )
-        md = "# Search Evaluation\n\n## Config\n" + md_config + "\n## Metrics\n" + _write_markdown_table(headers, rows_md) + "\n"
+        md = "# Search Evaluation Report\n\n" + md_config + "\n## Metrics\n" + _write_markdown_table(headers, rows_md) + "\n"
         out_md.write_text(md)
         mlflow.log_artifact(str(out_md))
 
@@ -786,6 +820,7 @@ def eval_chat(
     """Evaluate single-turn chat using RAGAS metrics; logs to eval/results and MLflow."""
 
     import mlflow
+    import pandas as pd
     from datasets import Dataset
     from ragas import evaluate as ragas_evaluate
     from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
@@ -836,7 +871,7 @@ def eval_chat(
             "ground_truth": row.get("reference_answer") or "",
         })
 
-    timestamp = str(int(time.time()))
+    timestamp = _get_timestamp()
     out_json = results_dir / f"chat_{timestamp}.json"
     out_md = results_dir / f"chat_{timestamp}.md"
 
@@ -845,18 +880,102 @@ def eval_chat(
         mlflow.log_param("max_samples", max_samples)
         ds = Dataset.from_list(rows_eval)
         res = ragas_evaluate(ds, metrics=[faithfulness, answer_relevancy, context_precision, context_recall])
-        scores = {k: float(res[k]) for k in res.keys()}
+        # Extract scores from EvaluationResult object
+        scores: dict[str, float] = {}
+        try:
+            # Try to get scores from the result object
+            if hasattr(res, 'scores'):
+                # res.scores could be a list or dict
+                if isinstance(res.scores, dict):
+                    scores = {k: float(v) for k, v in res.scores.items()}
+                elif isinstance(res.scores, list) and len(res.scores) > 0:
+                    # If it's a list, it usually contains a single dict with all metrics
+                    if isinstance(res.scores[0], dict):
+                        scores = {k: float(v) if not pd.isna(v) else 0.0 for k, v in res.scores[0].items()}
+                    else:
+                        # Fallback: list of values
+                        for i, metric in enumerate([faithfulness, answer_relevancy, context_precision, context_recall]):
+                            metric_name = metric.name if hasattr(metric, 'name') else str(type(metric).__name__)
+                            if i < len(res.scores):
+                                scores[metric_name] = float(res.scores[i]) if not pd.isna(res.scores[i]) else 0.0
+            
+            # If no scores yet, try pandas dataframe
+            if not scores and hasattr(res, 'to_pandas'):
+                # Aggregate from dataframe
+                df = res.to_pandas()
+                for col in df.columns:
+                    if col not in {"question", "answer", "contexts", "ground_truth", "reference"}:
+                        try:
+                            scores[col] = float(df[col].astype(float).mean())
+                        except Exception:
+                            pass
+            
+            # If still no scores, try direct dictionary/attribute access
+            if not scores:
+                for metric in [faithfulness, answer_relevancy, context_precision, context_recall]:
+                    metric_name = metric.name if hasattr(metric, 'name') else str(type(metric).__name__)
+                    # Try as dict key
+                    if hasattr(res, '__getitem__'):
+                        try:
+                            scores[metric_name] = float(res[metric_name])
+                        except (KeyError, TypeError):
+                            pass
+                    # Try as attribute
+                    if metric_name not in scores and hasattr(res, metric_name):
+                        try:
+                            scores[metric_name] = float(getattr(res, metric_name))
+                        except (TypeError, ValueError):
+                            pass
+        except Exception as e:
+            typer.echo(f"Warning: Could not extract scores from evaluation result: {e}", err=True)
+            # Debug: show what we actually got
+            typer.echo(f"Result type: {type(res)}", err=True)
+            if hasattr(res, 'scores'):
+                typer.echo(f"res.scores type: {type(res.scores)}", err=True)
+            scores = {"error": 0.0}
+        
         for k, v in scores.items():
             mlflow.log_metric(k, v)
 
+        # Capture all call parameters
+        call_params = {
+            "command": "eval-chat",
+            "timestamp": timestamp,
+            "dataset": str(dataset),
+            "top_k": top_k,
+            "max_samples": max_samples,
+            "seed": seed,
+            "samples_loaded": len(rows_in),
+            "samples_evaluated": len(rows_eval),
+            "device": device,
+            "embed_model": EMBED_MODEL,
+            "llm_model": llm_config.chat_model,
+            "eval_model": llm_config.eval_model,
+        }
+        
         report = {
+            "call_parameters": call_params,
             "config": {"top_k": top_k, "max_samples": max_samples},
             "aggregates": scores,
         }
         _save_json(out_json, report)
         mlflow.log_artifact(str(out_json))
 
-        md = "# Chat Evaluation\n\n" + _write_markdown_table(["metric", "score"], [[k, f"{v:.4f}"] for k, v in scores.items()]) + "\n"
+        md_params = (
+            f"### Call Parameters\n"
+            f"- **Command**: `eval-chat`\n"
+            f"- **Timestamp**: {timestamp}\n"
+            f"- **Dataset**: `{dataset}`\n"
+            f"- **Samples**: requested={max_samples}, loaded={len(rows_in)}, evaluated={len(rows_eval)}\n"
+            f"- **Top-K contexts**: {top_k}\n"
+            f"- **Seed**: {seed}\n"
+            f"- **Device**: {device}\n"
+            f"- **Embed model**: `{EMBED_MODEL}`\n"
+            f"- **Chat LLM**: `{llm_config.chat_model}`\n"
+            f"- **Eval LLM**: `{llm_config.eval_model}`\n\n"
+        )
+        
+        md = "# Chat Evaluation Report\n\n" + md_params + "## Metrics\n" + _write_markdown_table(["metric", "score"], [[k, f"{v:.4f}"] for k, v in scores.items()]) + "\n"
         out_md.write_text(md)
         mlflow.log_artifact(str(out_md))
 
