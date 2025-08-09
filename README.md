@@ -7,6 +7,11 @@ An advanced e-commerce search and recommendation system that combines data analy
 - **Semantic Search**: Vector search using Qdrant with gte-large embeddings (1024-dim)
 - **Hybrid Retrieval**: Combines BM25 keyword search with semantic search using Reciprocal Rank Fusion (RRF)
 - **Cross-encoder Reranking**: Uses ms-marco-MiniLM-L-12-v2 for improved result reranking
+- **Interactive Modes**: Three interactive modes for seamless user experience
+  - 🔍 **Interactive Search**: Continuous product searching with built-in help
+  - 💬 **Interactive Chat**: Natural conversations with the shopping assistant
+  - 🛍️ **Combined Mode**: Switch between search and chat seamlessly
+- **Visual CLI**: Colored outputs, emojis, and progress indicators for better UX
 - **Interactive Analysis**: Marimo notebooks for data exploration and visualization
 - **Command-Line Interface**: Typer-based CLI for all core functionality
 - **Evaluation Framework**: RAGAS metrics for search and chat quality assessment
@@ -45,6 +50,18 @@ This starts:
 - **Qdrant** on port 6333 (vector database)
 - **Redis** on port 6379 (caching, 2GB memory limit)
 
+### Try It Out!
+
+After setup, try the interactive mode:
+```bash
+# Start the interactive shopping assistant
+uv run python -m app.cli interactive
+
+# Or jump directly into search or chat
+uv run python -m app.cli search    # Interactive search
+uv run python -m app.cli chat      # Interactive chat
+```
+
 ### Configuration
 
 1. Set up your OpenAI API key:
@@ -67,9 +84,18 @@ uv run python -m app.cli ingest \
 
 ## Command-Line Interface
 
+### Interactive Mode (NEW!)
+```bash
+# Combined interactive mode - switch between search and chat
+uv run python -m app.cli interactive
+```
+
 ### Search
 ```bash
-# Hybrid search with all variants
+# Interactive search mode - continuous searching
+uv run python -m app.cli search
+
+# Single query search
 uv run python -m app.cli search \
   --query "wireless earbuds" \
   --top-k 20 --rrf-k 60 --rerank
@@ -77,13 +103,19 @@ uv run python -m app.cli search \
 
 ### Chat
 ```bash
-# Interactive chat with RAG
+# Interactive chat mode - have a conversation
 uv run python -m app.cli chat
 
 # Single question
 uv run python -m app.cli chat \
   --question "What are the best budget earbuds?"
 ```
+
+### Interactive Features
+- **Built-in Commands**: `help`, `settings`, `context`, `clear`, `exit`
+- **Color-Coded Results**: Green (high relevance), Yellow (medium), White (low)
+- **Persistent Sessions**: Data loaded once for faster responses
+- **Visual Feedback**: Thinking indicators, progress bars, formatted outputs
 
 ### Evaluation
 ```bash

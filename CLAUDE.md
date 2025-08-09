@@ -52,6 +52,12 @@ uv run ruff check --fix .  # Auto-fix issues
 
 ### CLI Commands
 
+#### Interactive Mode (NEW!)
+```bash
+# Combined interactive mode - seamlessly switch between search and chat
+uv run python -m app.cli interactive
+```
+
 #### Ingestion
 ```bash
 # Ingest products and reviews into Qdrant
@@ -62,7 +68,10 @@ uv run python -m app.cli ingest \
 
 #### Search
 ```bash
-# Hybrid search with cross-encoder reranking
+# Interactive search mode - continuous searching with commands
+uv run python -m app.cli search
+
+# Single query search
 uv run python -m app.cli search \
   --query "wireless earbuds" \
   --top-k 20 \
@@ -72,13 +81,19 @@ uv run python -m app.cli search \
 
 #### Chat
 ```bash
-# Interactive chat
+# Interactive chat mode - have a conversation
 uv run python -m app.cli chat
 
 # Single question
 uv run python -m app.cli chat \
   --question "What are the best budget earbuds?"
 ```
+
+#### Interactive Features
+- **Search Mode Commands**: `help` (tips), `settings` (config), `exit`
+- **Chat Mode Commands**: `help` (examples), `context` (settings), `clear` (screen), `exit`
+- **Visual Feedback**: Color-coded results, emojis, progress indicators
+- **Persistent Sessions**: Data loaded once for faster responses
 
 #### Evaluation
 ```bash
@@ -147,10 +162,20 @@ uv run python test_ragas_fix.py
   - `search_eval.jsonl`: 20 e-commerce search queries
   - `chat_eval.jsonl`: 20 Q&A pairs with reference answers
 - **Created docs/RAG_EVALUATION_INSIGHTS.md**: Comprehensive guide on interpreting RAG metrics
+- **Created docs/CLI.md**: Complete CLI reference documentation
 - **Enhanced Evaluation Reports**: Added comprehensive call parameters to all reports
   - JSON reports include `call_parameters` section with all command arguments
   - Markdown reports include formatted "Call Parameters" section
   - Full traceability of model configurations, paths, and execution parameters
+- **Interactive Modes**: Added three interactive modes for better UX
+  - Interactive search mode with continuous querying
+  - Enhanced chat mode with conversation history
+  - Combined `interactive` command to switch between modes
+- **Visual CLI Enhancements**: 
+  - Color-coded outputs using `typer.secho()`
+  - Relevance-based coloring (green/yellow/white)
+  - Emojis for better visual distinction
+  - Progress indicators and thinking animations
 
 **Model Upgrades:**
 - **Cross-Encoder**: Upgraded from ms-marco-MiniLM-L-6-v2 to ms-marco-MiniLM-L-12-v2
@@ -176,6 +201,11 @@ uv run python test_ragas_fix.py
 5. **LLM Configuration**: Flexible model support
    - Default: GPT-4o-mini
    - Environment-based configuration via OPENAI_API_KEY and OPENAI_API_BASE
+
+6. **Test Organization**: Cleaned up test structure
+   - Moved useful tests to `tests/` directory
+   - Removed obsolete one-time fix tests
+   - Added test documentation in `tests/README.md`
 
 ### Technology Stack
 - **Data Processing**: Polars for fast dataframe operations

@@ -367,7 +367,7 @@ def _cross_encoder_scores(model_name: str, device: str, query: str, candidates: 
 
 @app.command()
 def search(
-    query: str = typer.Option(..., help="User query"),
+    query: str = typer.Option(None, help="User query (if omitted, starts interactive mode)"),
     products_path: Path = typer.Option(DATA_PRODUCTS, exists=True, readable=True),
     reviews_path: Path = typer.Option(DATA_REVIEWS, exists=True, readable=True),
     top_k: int = typer.Option(20, min=1, help="Top-K per modality"),
@@ -381,104 +381,190 @@ def search(
     st_model = _load_st_model(EMBED_MODEL, device=device)
     client = _qdrant_client()
 
-    # BM25
+    # Load data once for the session
     bm25_prod, bm25_rev, id_to_product, id_to_review = _bm25_from_files(products_path, reviews_path)
-    q_tokens = _tokenize(query)
-    bm25_prod_scores = bm25_prod.get_scores(q_tokens)
-    bm25_rev_scores = bm25_rev.get_scores(q_tokens)
-    prod_ranked = sorted(
-        [(pid, float(s)) for pid, s in zip(id_to_product.keys(), bm25_prod_scores)],
-        key=lambda x: x[1],
-        reverse=True,
-    )[:top_k]
-    rev_ranked = sorted(
-        [(rid, float(s)) for rid, s in zip(id_to_review.keys(), bm25_rev_scores)],
-        key=lambda x: x[1],
-        reverse=True,
-    )[:top_k]
-
-    # Vectors - need to map UUIDs back to original IDs
-    q_vec = st_model.encode([query], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
-    prod_vec_raw = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)
-    rev_vec_raw = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)
     
-    # Map to original IDs from payload
-    prod_vec = []
-    for uuid, score, payload in prod_vec_raw:
-        original_id = payload.get('original_id', payload.get('id', ''))
-        if original_id and original_id in id_to_product:
-            prod_vec.append((original_id, score))
-    
-    rev_vec = []
-    for uuid, score, payload in rev_vec_raw:
-        original_id = payload.get('original_id', payload.get('id', ''))
-        if original_id and original_id in id_to_review:
-            rev_vec.append((original_id, score))
+    def perform_search(search_query: str) -> None:
+        """Execute a single search."""
+        q_tokens = _tokenize(search_query)
+        bm25_prod_scores = bm25_prod.get_scores(q_tokens)
+        bm25_rev_scores = bm25_rev.get_scores(q_tokens)
+        prod_ranked = sorted(
+            [(pid, float(s)) for pid, s in zip(id_to_product.keys(), bm25_prod_scores)],
+            key=lambda x: x[1],
+            reverse=True,
+        )[:top_k]
+        rev_ranked = sorted(
+            [(rid, float(s)) for rid, s in zip(id_to_review.keys(), bm25_rev_scores)],
+            key=lambda x: x[1],
+            reverse=True,
+        )[:top_k]
 
-    fused = _rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=rrf_k)
-    fused_sorted = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:50]
+        # Vectors - need to map UUIDs back to original IDs
+        q_vec = st_model.encode([search_query], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
+        prod_vec_raw = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)
+        rev_vec_raw = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)
+        
+        # Map to original IDs from payload
+        prod_vec = []
+        for uuid, score, payload in prod_vec_raw:
+            original_id = payload.get('original_id', payload.get('id', ''))
+            if original_id and original_id in id_to_product:
+                prod_vec.append((original_id, score))
+        
+        rev_vec = []
+        for uuid, score, payload in rev_vec_raw:
+            original_id = payload.get('original_id', payload.get('id', ''))
+            if original_id and original_id in id_to_review:
+                rev_vec.append((original_id, score))
 
-    ce_scores: dict[str, float] = {}
-    if rerank and fused_sorted:
-        k_ce = min(rerank_top_k, len(fused_sorted))
-        candidates: list[tuple[str, str]] = []
-        for _id, _ in fused_sorted[:k_ce]:
+        fused = _rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=rrf_k)
+        fused_sorted = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:50]
+
+        ce_scores: dict[str, float] = {}
+        if rerank and fused_sorted:
+            k_ce = min(rerank_top_k, len(fused_sorted))
+            candidates: list[tuple[str, str]] = []
+            for _id, _ in fused_sorted[:k_ce]:
+                if _id.startswith("prod::") and _id in id_to_product:
+                    p = id_to_product[_id]
+                    candidates.append((_id, f"{p.get('title','')}\n{p.get('description','')}"))
+                elif _id.startswith("rev::") and _id in id_to_review:
+                    r = id_to_review[_id]
+                    candidates.append((_id, f"{r.get('title','')}\n{r.get('text','')}"))
+            ranked = _cross_encoder_scores(CROSS_ENCODER_MODEL, device, search_query, candidates)
+            ce_scores = {cid: score for cid, score in ranked}
+            fused_sorted = sorted(
+                fused_sorted, key=lambda x: (ce_scores.get(x[0], float("-inf")), x[1]), reverse=True
+            )
+
+        # Pretty print results
+        typer.secho(f"\n🔍 Search Results for: '{search_query}'", fg=typer.colors.CYAN, bold=True)
+        typer.secho(f"Found {len(fused_sorted)} results (showing top 20)\n", fg=typer.colors.WHITE)
+        
+        for idx, (_id, score) in enumerate(fused_sorted[:20], 1):
             if _id.startswith("prod::") and _id in id_to_product:
                 p = id_to_product[_id]
-                candidates.append((_id, f"{p.get('title','')}\n{p.get('description','')}"))
+                ce_score = ce_scores.get(_id, 0.0)
+                title = (p.get('title') or '')[:100]
+                rating = p.get('average_rating', 0.0)
+                
+                # Color based on score
+                if ce_score > 0.8:
+                    color = typer.colors.GREEN
+                elif ce_score > 0.5:
+                    color = typer.colors.YELLOW
+                else:
+                    color = typer.colors.WHITE
+                    
+                typer.secho(
+                    f"{idx:2d}. [📦 PRODUCT] {title}",
+                    fg=color, bold=True
+                )
+                typer.echo(f"    ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: ⭐ {rating}")
+                
             elif _id.startswith("rev::") and _id in id_to_review:
                 r = id_to_review[_id]
-                candidates.append((_id, f"{r.get('title','')}\n{r.get('text','')}"))
-        ranked = _cross_encoder_scores(CROSS_ENCODER_MODEL, device, query, candidates)
-        ce_scores = {cid: score for cid, score in ranked}
-        fused_sorted = sorted(
-            fused_sorted, key=lambda x: (ce_scores.get(x[0], float("-inf")), x[1]), reverse=True
-        )
-
-    # Pretty print results
-    typer.secho(f"\n🔍 Search Results for: '{query}'", fg=typer.colors.CYAN, bold=True)
-    typer.secho(f"Found {len(fused_sorted)} results (showing top 20)\n", fg=typer.colors.WHITE)
+                ce_score = ce_scores.get(_id, 0.0)
+                title = (r.get('title') or '')[:100]
+                rating = r.get('rating', 0.0)
+                
+                # Color based on score
+                if ce_score > 0.8:
+                    color = typer.colors.GREEN
+                elif ce_score > 0.5:
+                    color = typer.colors.YELLOW
+                else:
+                    color = typer.colors.WHITE
+                    
+                typer.secho(
+                    f"{idx:2d}. [📝 REVIEW] {title}",
+                    fg=color
+                )
+                typer.echo(f"    ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: ⭐ {rating}")
     
-    for idx, (_id, score) in enumerate(fused_sorted[:20], 1):
-        if _id.startswith("prod::") and _id in id_to_product:
-            p = id_to_product[_id]
-            ce_score = ce_scores.get(_id, 0.0)
-            title = (p.get('title') or '')[:100]
-            rating = p.get('average_rating', 0.0)
-            
-            # Color based on score
-            if ce_score > 0.8:
-                color = typer.colors.GREEN
-            elif ce_score > 0.5:
-                color = typer.colors.YELLOW
-            else:
-                color = typer.colors.WHITE
+    # Check if interactive mode or single query
+    if query:
+        # Single query mode
+        perform_search(query)
+    else:
+        # Interactive mode
+        typer.secho("\n🔍 Interactive Search Mode", fg=typer.colors.CYAN, bold=True)
+        typer.secho("Type your queries below. Commands:", fg=typer.colors.WHITE)
+        typer.secho("  'help' - Show search tips", fg=typer.colors.WHITE)
+        typer.secho("  'settings' - Show current settings", fg=typer.colors.WHITE)
+        typer.secho("  'exit' or 'quit' - Exit interactive mode", fg=typer.colors.WHITE)
+        typer.secho("  Press Ctrl+C to interrupt\n", fg=typer.colors.WHITE)
+        
+        while True:
+            try:
+                typer.secho("Search> ", fg=typer.colors.YELLOW, bold=True, nl=False)
+                user_query = input().strip()
+            except (EOFError, KeyboardInterrupt):
+                typer.secho("\n\n👋 Goodbye!", fg=typer.colors.CYAN)
+                break
                 
-            typer.secho(
-                f"{idx:2d}. [📦 PRODUCT] {title}",
-                fg=color, bold=True
-            )
-            typer.echo(f"    ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: ⭐ {rating}")
-            
-        elif _id.startswith("rev::") and _id in id_to_review:
-            r = id_to_review[_id]
-            ce_score = ce_scores.get(_id, 0.0)
-            title = (r.get('title') or '')[:100]
-            rating = r.get('rating', 0.0)
-            
-            # Color based on score
-            if ce_score > 0.8:
-                color = typer.colors.GREEN
-            elif ce_score > 0.5:
-                color = typer.colors.YELLOW
-            else:
-                color = typer.colors.WHITE
+            if not user_query:
+                continue
                 
-            typer.secho(
-                f"{idx:2d}. [📝 REVIEW] {title}",
-                fg=color
-            )
-            typer.echo(f"    ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: ⭐ {rating}")
+            if user_query.lower() in {"exit", "quit"}:
+                typer.secho("👋 Goodbye!", fg=typer.colors.CYAN)
+                break
+            elif user_query.lower() == "help":
+                typer.secho("\n📚 Search Tips:", fg=typer.colors.CYAN, bold=True)
+                typer.secho("  • Use specific product names for best results", fg=typer.colors.WHITE)
+                typer.secho("  • Include key features: 'wireless earbuds noise cancelling'", fg=typer.colors.WHITE)
+                typer.secho("  • Price queries work: 'budget laptop under $500'", fg=typer.colors.WHITE)
+                typer.secho("  • Brand searches: 'Apple headphones'", fg=typer.colors.WHITE)
+                typer.secho("  • Comparative: 'best gaming mouse 2023'\n", fg=typer.colors.WHITE)
+            elif user_query.lower() == "settings":
+                typer.secho("\n⚙️  Current Settings:", fg=typer.colors.CYAN, bold=True)
+                typer.secho(f"  Top-K per modality: {top_k}", fg=typer.colors.WHITE)
+                typer.secho(f"  RRF fusion parameter: {rrf_k}", fg=typer.colors.WHITE)
+                typer.secho(f"  Cross-encoder reranking: {'Enabled' if rerank else 'Disabled'}", fg=typer.colors.WHITE)
+                typer.secho(f"  Rerank top-K: {rerank_top_k}", fg=typer.colors.WHITE)
+                typer.secho(f"  Device: {device}\n", fg=typer.colors.WHITE)
+            else:
+                perform_search(user_query)
+
+
+@app.command()
+def interactive() -> None:
+    """Interactive mode that combines search and chat capabilities."""
+    
+    typer.secho("\n🛍️  Shopping Assistant Interactive Mode", fg=typer.colors.CYAN, bold=True)
+    typer.secho("Choose your mode or switch anytime!\n", fg=typer.colors.WHITE)
+    
+    while True:
+        typer.secho("Select mode:", fg=typer.colors.YELLOW, bold=True)
+        typer.secho("  1. 🔍 Search - Find products and reviews", fg=typer.colors.WHITE)
+        typer.secho("  2. 💬 Chat - Ask questions and get recommendations", fg=typer.colors.WHITE)
+        typer.secho("  3. 🚪 Exit\n", fg=typer.colors.WHITE)
+        
+        try:
+            typer.secho("Choice (1/2/3): ", fg=typer.colors.YELLOW, bold=True, nl=False)
+            choice = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            typer.secho("\n\n👋 Goodbye!", fg=typer.colors.CYAN)
+            break
+            
+        if choice == "1":
+            typer.secho("\nSwitching to Search Mode...\n", fg=typer.colors.BLUE)
+            # Call search in interactive mode
+            ctx = typer.Context(search)
+            ctx.invoke(search, query=None)
+            typer.secho("\nReturned to main menu.\n", fg=typer.colors.BLUE)
+        elif choice == "2":
+            typer.secho("\nSwitching to Chat Mode...\n", fg=typer.colors.BLUE)
+            # Call chat in interactive mode
+            ctx = typer.Context(chat)
+            ctx.invoke(chat, question=None)
+            typer.secho("\nReturned to main menu.\n", fg=typer.colors.BLUE)
+        elif choice == "3" or choice.lower() in {"exit", "quit"}:
+            typer.secho("👋 Goodbye!", fg=typer.colors.CYAN)
+            break
+        else:
+            typer.secho("❌ Invalid choice. Please enter 1, 2, or 3.\n", fg=typer.colors.RED)
 
 
 @app.command()
@@ -531,25 +617,73 @@ def chat(
         typer.echo(answer_one(question))
         raise typer.Exit(0)
 
-    typer.secho("\n💬 Chat with Shopping Assistant", fg=typer.colors.CYAN, bold=True)
-    typer.secho("Type 'exit' or 'quit' to leave. Press Ctrl+C to interrupt.\n", fg=typer.colors.WHITE)
+    typer.secho("\n💬 Interactive Chat Mode", fg=typer.colors.CYAN, bold=True)
+    typer.secho("I can help you find products, compare items, and answer questions.", fg=typer.colors.WHITE)
+    typer.secho("\nCommands:", fg=typer.colors.WHITE)
+    typer.secho("  'help' - Show example questions", fg=typer.colors.WHITE)
+    typer.secho("  'context' - Show how many contexts are being retrieved", fg=typer.colors.WHITE)
+    typer.secho("  'clear' - Clear the screen", fg=typer.colors.WHITE)
+    typer.secho("  'exit' or 'quit' - Exit chat mode", fg=typer.colors.WHITE)
+    typer.secho("  Press Ctrl+C to interrupt\n", fg=typer.colors.WHITE)
+    
+    # Keep track of conversation history for context
+    history = []
     
     while True:
         try:
             typer.secho("You: ", fg=typer.colors.YELLOW, bold=True, nl=False)
             q = input().strip()
         except (EOFError, KeyboardInterrupt):
-            typer.secho("\n👋 Goodbye!", fg=typer.colors.CYAN)
+            typer.secho("\n\n👋 Goodbye!", fg=typer.colors.CYAN)
             break
+            
+        if not q:
+            continue
+            
         if q.lower() in {"exit", "quit"}:
             typer.secho("👋 Goodbye!", fg=typer.colors.CYAN)
             break
-        if not q:
+        elif q.lower() == "help":
+            typer.secho("\n💡 Example Questions:", fg=typer.colors.CYAN, bold=True)
+            typer.secho("  • What are the best wireless earbuds under $200?", fg=typer.colors.WHITE)
+            typer.secho("  • Compare Sony WH-1000XM4 and Bose QuietComfort", fg=typer.colors.WHITE)
+            typer.secho("  • Which laptop is good for programming?", fg=typer.colors.WHITE)
+            typer.secho("  • What do customers say about the Apple AirPods Pro?", fg=typer.colors.WHITE)
+            typer.secho("  • Find me a gaming mouse with RGB lighting", fg=typer.colors.WHITE)
+            typer.secho("  • What are the pros and cons of mechanical keyboards?\n", fg=typer.colors.WHITE)
+            continue
+        elif q.lower() == "context":
+            typer.secho(f"\n📚 Context Settings:", fg=typer.colors.CYAN, bold=True)
+            typer.secho(f"  Retrieving top {top_k} contexts per query", fg=typer.colors.WHITE)
+            typer.secho(f"  Sources: Products + Customer Reviews\n", fg=typer.colors.WHITE)
+            continue
+        elif q.lower() == "clear":
+            import os
+            os.system('clear' if os.name == 'posix' else 'cls')
+            typer.secho("💬 Interactive Chat Mode", fg=typer.colors.CYAN, bold=True)
             continue
         
-        typer.secho("\n🤖 Assistant: ", fg=typer.colors.GREEN, bold=True, nl=False)
+        # Show thinking indicator
+        typer.secho("\n🤔 Thinking...", fg=typer.colors.BLUE, italic=True)
+        
+        # Get answer
         a = answer_one(q)
-        typer.echo(f"{a}\n")
+        
+        # Clear thinking indicator and show answer
+        typer.echo("\033[F\033[K", nl=False)  # Move up and clear line
+        typer.secho("🤖 Assistant: ", fg=typer.colors.GREEN, bold=True)
+        
+        # Format answer with better line wrapping
+        import textwrap
+        wrapped = textwrap.fill(a, width=80, initial_indent="   ", subsequent_indent="   ")
+        typer.echo(f"{wrapped}\n")
+        
+        # Store in history
+        history.append({"question": q, "answer": a})
+        
+        # Show follow-up suggestion if applicable
+        if len(history) == 1:
+            typer.secho("💡 Tip: Ask follow-up questions for more details!\n", fg=typer.colors.CYAN, dim=True)
 
 
 # -------------------------

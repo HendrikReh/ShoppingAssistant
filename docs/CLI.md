@@ -18,8 +18,9 @@ uv run python -m app.cli [COMMAND] --help
 | Command | Description | Primary Use Case |
 |---------|-------------|------------------|
 | `ingest` | Load products and reviews into Qdrant | Initial setup and data refresh |
-| `search` | Search products using various strategies | Testing retrieval quality |
-| `chat` | Interactive Q&A with RAG | User interaction and testing |
+| `search` | Search products using various strategies | Find products and reviews |
+| `chat` | Interactive Q&A with RAG | Get recommendations and answers |
+| `interactive` | Combined search and chat mode | Full shopping assistant experience |
 | `eval-search` | Evaluate search quality with metrics | Performance benchmarking |
 | `eval-chat` | Evaluate chat responses with RAGAS | Response quality assessment |
 
@@ -122,7 +123,11 @@ uv run python -m app.cli search [OPTIONS]
 #### Example Usage
 
 ```bash
-# Basic search
+# Interactive search mode (NEW!)
+uv run python -m app.cli search
+# Then type queries interactively
+
+# Single query search
 uv run python -m app.cli search --query "wireless earbuds"
 
 # Search with more results
@@ -142,6 +147,17 @@ uv run python -m app.cli search \
   --query "budget smartphone" \
   --rrf-k 100  # Higher k = less aggressive fusion
 ```
+
+#### Interactive Mode Features
+
+In interactive search mode:
+- **Continuous searching**: Keep searching without reloading data
+- **Built-in commands**:
+  - `help` - Show search tips and examples
+  - `settings` - Display current search configuration
+  - `exit` or `quit` - Leave interactive mode
+- **Color-coded results**: Green for high relevance, yellow for medium, white for low
+- **Persistent session**: Data loaded once for faster subsequent searches
 
 #### Output Format
 
@@ -189,8 +205,9 @@ uv run python -m app.cli chat [OPTIONS]
 #### Example Usage
 
 ```bash
-# Interactive chat
+# Interactive chat mode (NEW!)
 uv run python -m app.cli chat
+# Then have a conversation
 
 # Single question
 uv run python -m app.cli chat \
@@ -201,11 +218,24 @@ uv run python -m app.cli chat \
   --question "Compare wireless earbuds under $200" \
   --top-k 15
 
-# Creative responses
+# Creative responses (when supported)
 uv run python -m app.cli chat \
   --temperature 0.7 \
   --max-tokens 2000
 ```
+
+#### Interactive Chat Features
+
+In interactive chat mode:
+- **Natural conversation**: Ask follow-up questions
+- **Built-in commands**:
+  - `help` - Show example questions
+  - `context` - Display context retrieval settings
+  - `clear` - Clear the screen
+  - `exit` or `quit` - Leave chat mode
+- **Visual feedback**: Thinking indicator while processing
+- **Formatted responses**: Auto-wrapped text for readability
+- **Conversation history**: Maintained during session
 
 #### Context Management
 
@@ -216,7 +246,54 @@ uv run python -m app.cli chat \
 
 ---
 
-### 4. `eval-search` - Search Evaluation
+### 4. `interactive` - Combined Interactive Mode
+
+Provides a unified interface to switch between search and chat modes seamlessly.
+
+```bash
+uv run python -m app.cli interactive
+```
+
+#### Features
+
+- **Mode Selection Menu**: Choose between search and chat
+- **Seamless Switching**: Move between modes without restarting
+- **Persistent Session**: Stay in the app while switching tasks
+- **All Features Available**: Access full search and chat capabilities
+
+#### Example Session
+
+```
+🛍️  Shopping Assistant Interactive Mode
+Choose your mode or switch anytime!
+
+Select mode:
+  1. 🔍 Search - Find products and reviews
+  2. 💬 Chat - Ask questions and get recommendations
+  3. 🚪 Exit
+
+Choice (1/2/3): 1
+Switching to Search Mode...
+[Enter search queries...]
+
+Choice (1/2/3): 2
+Switching to Chat Mode...
+[Have a conversation...]
+
+Choice (1/2/3): 3
+👋 Goodbye!
+```
+
+#### Use Cases
+
+- **Research Session**: Switch between searching for products and asking detailed questions
+- **Comparison Shopping**: Search for items, then chat about comparisons
+- **Customer Service**: Help users find products and answer their questions
+- **Product Discovery**: Explore options through both search and conversation
+
+---
+
+### 5. `eval-search` - Search Evaluation
 
 Evaluates search quality using RAGAS metrics across different retrieval variants.
 
@@ -297,7 +374,7 @@ uv run python -m app.cli eval-search \
 
 ---
 
-### 5. `eval-chat` - Chat Evaluation
+### 6. `eval-chat` - Chat Evaluation
 
 Evaluates chat response quality using RAGAS metrics for RAG systems.
 
