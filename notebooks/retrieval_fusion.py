@@ -20,6 +20,8 @@ def _():
     COLLECTION_PRODUCTS = "products_gte_large"
     COLLECTION_REVIEWS = "reviews_gte_large"
     MODEL_NAME = "thenlper/gte-large"
+    # Lightweight cross-encoder suitable for fast reranking on CPU/MPS
+    CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     VECTOR_SIZE = 1024
 
     mo.md("# Hybrid Retrieval with BM25 + Vectors (RRF)")
@@ -42,19 +44,43 @@ def _():
 @app.cell
 def _(MODEL_NAME):
     import torch
-    from importlib import import_module
 
     device = (
         "mps" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "cpu"
     )
 
     def load_model(model_name: str, target_device: str):
-        st = import_module("sentence_transformers")
-        SentenceTransformer = getattr(st, "SentenceTransformer")
+        # Local import to avoid cross-cell name warnings
+        from sentence_transformers import SentenceTransformer
         return SentenceTransformer(model_name, device=target_device)
 
     model = load_model(MODEL_NAME, device)
     return device, load_model, model
+
+
+@app.cell
+def _(CROSS_ENCODER_MODEL, device):
+    # Direct import; avoid shared globals across cells
+    from sentence_transformers import CrossEncoder
+
+    reranker = CrossEncoder(CROSS_ENCODER_MODEL, device=device)
+
+    def rerank_with_cross_encoder(query_text: str, candidates: list[tuple[str, str]], _reranker=reranker) -> list[tuple[str, float]]:
+        """Return list of (candidate_id, ce_score) sorted by score desc.
+
+        candidates: list of (id, candidate_text)
+        """
+        if not candidates:
+            return []
+        pairs = [(query_text, text) for _, text in candidates]
+        scores = _reranker.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
+        ranked: list[tuple[str, float]] = [
+            (candidates[i][0], float(scores[i])) for i in range(len(candidates))
+        ]
+        ranked.sort(key=lambda x: x[1], reverse=True)
+        return ranked
+
+    return rerank_with_cross_encoder
 
 
 @app.cell
@@ -200,6 +226,8 @@ def _(
     query = mo.ui.text(placeholder="Search products and reviews...", label="Query")
     top_k = mo.ui.slider(5, 50, 20, label="Top-K per modality")
     k_rrf = mo.ui.slider(10, 100, 60, label="RRF k")
+    use_ce_rerank = mo.ui.checkbox(label="Use cross-encoder rerank", value=True)
+    rerank_top_k = mo.ui.slider(5, 100, 30, label="Rerank top-K after fusion")
 
     # Display controls cell-only
     mo.md(f"""
@@ -207,8 +235,10 @@ def _(
     {query}
     {top_k}
     {k_rrf}
+    {use_ce_rerank}
+    {rerank_top_k}
     """)
-    return k_rrf, query, top_k
+    return k_rrf, query, top_k, use_ce_rerank, rerank_top_k
 
 
 @app.cell
@@ -228,6 +258,9 @@ def _(
     k_rrf,
     rrf_fuse,
     pl,
+    use_ce_rerank,
+    rerank_top_k,
+    rerank_with_cross_encoder,
 ):
     view = None
     if not query.value:
@@ -259,6 +292,35 @@ def _(
         fused_scores = rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=k_rrf.value)
         fused_sorted = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)[:50]
 
+        # Optional cross-encoder rerank on top-K fused candidates
+        ce_scores_map: dict[str, float] = {}
+        if use_ce_rerank.value and fused_sorted:
+            k_ce = min(rerank_top_k.value, len(fused_sorted))
+            candidates: list[tuple[str, str]] = []
+            for _id, _ in fused_sorted[:k_ce]:
+                if _id.startswith("prod::") and _id in id_to_product:
+                    p = id_to_product[_id]
+                    candidates.append((
+                        _id,
+                        f"{p.get('title','')}\n{p.get('description','')}"
+                    ))
+                elif _id.startswith("rev::") and _id in id_to_review:
+                    r = id_to_review[_id]
+                    candidates.append((
+                        _id,
+                        f"{r.get('title','')}\n{r.get('text','')}"
+                    ))
+
+            ranked = rerank_with_cross_encoder(query.value, candidates)
+            ce_scores_map = {cid: score for cid, score in ranked}
+
+            # Reorder fused_sorted by CE score (fallback to fused score if missing)
+            fused_sorted = sorted(
+                fused_sorted,
+                key=lambda x: (ce_scores_map.get(x[0], float('-inf')), x[1]),
+                reverse=True,
+            )
+
         # Build display rows
         rows = []
         for _id, score in fused_sorted:
@@ -271,6 +333,7 @@ def _(
                     "rating": p.get("average_rating"),
                     "reviews": p.get("num_reviews"),
                     "rrf": round(score, 6),
+                    "ce": (round(ce_scores_map[_id], 6) if _id in ce_scores_map else None),
                 })
             elif _id.startswith("rev::") and _id in id_to_review:
                 r = id_to_review[_id]
@@ -281,12 +344,19 @@ def _(
                     "rating": r.get("rating"),
                     "helpful": r.get("helpful_vote"),
                     "rrf": round(score, 6),
+                    "ce": (round(ce_scores_map[_id], 6) if _id in ce_scores_map else None),
                 })
 
         result_df = pl.DataFrame(rows)
         if result_df.height == 0:
             view = mo.md("No results found.")
         else:
+            # Reorder columns for readability
+            preferred_cols = [
+                "type", "id", "title", "rating", "reviews", "helpful", "rrf", "ce"
+            ]
+            existing_cols = [c for c in preferred_cols if c in result_df.columns]
+            result_df = result_df.select(existing_cols)
             table = mo.ui.table(result_df.to_pandas(), pagination=False)
             view = mo.md(
                 f"""
