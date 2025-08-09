@@ -3116,6 +3116,7 @@ dependencies = [
     { name = "tavily-python" },
     { name = "torch" },
     { name = "transformers" },
+    { name = "typer" },
 ]
 
 [package.metadata]
@@ -3142,6 +3143,7 @@ requires-dist = [
     { name = "tavily-python", specifier = ">=0.7.10" },
     { name = "torch", specifier = ">=2.3.0" },
     { name = "transformers", specifier = ">=4.41.2" },
+    { name = "typer", specifier = ">=0.12.5" },
 ]
 
 [[package]]
