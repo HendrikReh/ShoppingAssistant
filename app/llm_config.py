@@ -94,7 +94,7 @@ class LLMConfig:
         if "gpt-5" in self.eval_model.lower():
             # Enable dropping unsupported params for GPT-5
             litellm.drop_params = True
-            print("Enabled litellm.drop_params for GPT-5 compatibility")
+            pass  # Silently enable for GPT-5
         
         # RAGAS uses environment variables for LLM configuration
         os.environ["OPENAI_API_KEY"] = self.api_key or ""

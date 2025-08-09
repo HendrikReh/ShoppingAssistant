@@ -202,19 +202,19 @@ def ingest(
     qmodels = _qmodels()
     _ensure_collections(client, qmodels, VECTOR_SIZE, [collection_products, collection_reviews])
 
-    typer.echo("Starting ingestion with configuration:")
-    typer.echo(f"- Device: {device}")
-    typer.echo(f"- Embed model: {model_name}")
-    typer.echo(f"- Products path: {products_path}")
-    typer.echo(f"- Reviews path:  {reviews_path}")
-    typer.echo(f"- Products batch size: {products_batch_size}")
-    typer.echo(f"- Reviews batch size:  {reviews_batch_size}")
-    typer.echo(f"- Qdrant collections: products={collection_products} reviews={collection_reviews}")
-    typer.echo("Plan:")
+    typer.secho("🚀 Starting ingestion with configuration:", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"  Device: {device}", fg=typer.colors.WHITE)
+    typer.secho(f"  Embed model: {model_name}", fg=typer.colors.WHITE)
+    typer.secho(f"  Products path: {products_path}", fg=typer.colors.WHITE)
+    typer.secho(f"  Reviews path:  {reviews_path}", fg=typer.colors.WHITE)
+    typer.secho(f"  Products batch size: {products_batch_size}", fg=typer.colors.WHITE)
+    typer.secho(f"  Reviews batch size:  {reviews_batch_size}", fg=typer.colors.WHITE)
+    typer.secho(f"  Qdrant collections: products={collection_products} reviews={collection_reviews}", fg=typer.colors.WHITE)
+    typer.secho("\n📋 Plan:", fg=typer.colors.YELLOW, bold=True)
     typer.echo("  1) Read JSONL files")
     typer.echo("  2) Build normalized docs (products, reviews)")
     typer.echo("  3) Embed texts with Sentence-Transformers on the selected device")
-    typer.echo("  4) Upsert vectors + payloads into Qdrant using deterministic UUIDs (payload keeps original_id)")
+    typer.echo("  4) Upsert vectors + payloads into Qdrant using deterministic UUIDs")
     typer.echo("  5) Summarize system state (point counts per collection)")
 
     products = _read_jsonl(products_path)
@@ -246,9 +246,12 @@ def ingest(
         processed += len(batch)
         elapsed = time.time() - start
         rate = processed / elapsed if elapsed > 0 else 0
-        typer.echo(
-            f"[products] {processed}/{len(product_docs)} ({processed*100/len(product_docs):.1f}%) "
-            f"{rate:.1f}/s elapsed={_format_seconds(elapsed)}"
+        progress_pct = processed*100/len(product_docs)
+        color = typer.colors.GREEN if progress_pct == 100 else typer.colors.BLUE
+        typer.secho(
+            f"[products] {processed}/{len(product_docs)} ({progress_pct:.1f}%) "
+            f"{rate:.1f}/s elapsed={_format_seconds(elapsed)}",
+            fg=color
         )
 
     prod_time = time.time() - start
@@ -264,9 +267,12 @@ def ingest(
         processed += len(batch)
         elapsed = time.time() - start_r
         rate = processed / elapsed if elapsed > 0 else 0
-        typer.echo(
-            f"[reviews] {processed}/{len(review_docs)} ({processed*100/len(review_docs):.1f}%) "
-            f"{rate:.1f}/s elapsed={_format_seconds(elapsed)}"
+        progress_pct = processed*100/len(review_docs)
+        color = typer.colors.GREEN if progress_pct == 100 else typer.colors.BLUE
+        typer.secho(
+            f"[reviews] {processed}/{len(review_docs)} ({progress_pct:.1f}%) "
+            f"{rate:.1f}/s elapsed={_format_seconds(elapsed)}",
+            fg=color
         )
 
     rev_time = time.time() - start_r
@@ -282,14 +288,14 @@ def ingest(
     except Exception:
         pass
 
-    typer.echo("\nSummary:")
-    typer.echo(f"- Ingested products: {len(product_docs)} in {_format_seconds(prod_time)}")
-    typer.echo(f"- Ingested reviews:  {len(review_docs)} in {_format_seconds(rev_time)}")
-    typer.echo(f"- Device: {device} • Vector dim: {VECTOR_SIZE} • Model: {model_name}")
+    typer.secho("\n✅ Summary:", fg=typer.colors.GREEN, bold=True)
+    typer.secho(f"  Ingested products: {len(product_docs)} in {_format_seconds(prod_time)}", fg=typer.colors.WHITE)
+    typer.secho(f"  Ingested reviews:  {len(review_docs)} in {_format_seconds(rev_time)}", fg=typer.colors.WHITE)
+    typer.secho(f"  Device: {device} • Vector dim: {VECTOR_SIZE} • Model: {model_name}", fg=typer.colors.WHITE)
     if prod_count is not None:
-        typer.echo(f"- Qdrant points: {collection_products}={prod_count}")
+        typer.secho(f"  Qdrant points: {collection_products}={prod_count}", fg=typer.colors.CYAN)
     if rev_count is not None:
-        typer.echo(f"- Qdrant points: {collection_reviews}={rev_count}")
+        typer.secho(f"  Qdrant points: {collection_reviews}={rev_count}", fg=typer.colors.CYAN)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -429,18 +435,50 @@ def search(
             fused_sorted, key=lambda x: (ce_scores.get(x[0], float("-inf")), x[1]), reverse=True
         )
 
-    # Pretty print
-    for _id, score in fused_sorted[:20]:
+    # Pretty print results
+    typer.secho(f"\n🔍 Search Results for: '{query}'", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"Found {len(fused_sorted)} results (showing top 20)\n", fg=typer.colors.WHITE)
+    
+    for idx, (_id, score) in enumerate(fused_sorted[:20], 1):
         if _id.startswith("prod::") and _id in id_to_product:
             p = id_to_product[_id]
-            typer.echo(
-                f"[product] id={_id} rrf={score:.6f} ce={ce_scores.get(_id):.4f} title={(p.get('title') or '')[:100]}"
+            ce_score = ce_scores.get(_id, 0.0)
+            title = (p.get('title') or '')[:100]
+            rating = p.get('average_rating', 0.0)
+            
+            # Color based on score
+            if ce_score > 0.8:
+                color = typer.colors.GREEN
+            elif ce_score > 0.5:
+                color = typer.colors.YELLOW
+            else:
+                color = typer.colors.WHITE
+                
+            typer.secho(
+                f"{idx:2d}. [📦 PRODUCT] {title}",
+                fg=color, bold=True
             )
+            typer.echo(f"    ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: ⭐ {rating}")
+            
         elif _id.startswith("rev::") and _id in id_to_review:
             r = id_to_review[_id]
-            typer.echo(
-                f"[review]  id={_id} rrf={score:.6f} ce={ce_scores.get(_id):.4f} title={(r.get('title') or '')[:100]}"
+            ce_score = ce_scores.get(_id, 0.0)
+            title = (r.get('title') or '')[:100]
+            rating = r.get('rating', 0.0)
+            
+            # Color based on score
+            if ce_score > 0.8:
+                color = typer.colors.GREEN
+            elif ce_score > 0.5:
+                color = typer.colors.YELLOW
+            else:
+                color = typer.colors.WHITE
+                
+            typer.secho(
+                f"{idx:2d}. [📝 REVIEW] {title}",
+                fg=color
             )
+            typer.echo(f"    ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: ⭐ {rating}")
 
 
 @app.command()
@@ -458,7 +496,7 @@ def chat(
         lm = llm_config.get_dspy_lm(task="chat")
         dspy.configure(lm=lm)
     except ValueError as e:
-        typer.echo(f"Error: {e}", err=True)
+        typer.secho(f"❌ Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
     # Simple RAG module: question + context -> answer
@@ -488,23 +526,30 @@ def chat(
         return getattr(pred, "answer", "")
 
     if question:
+        typer.secho(f"\n🤔 Question: {question}", fg=typer.colors.CYAN)
+        typer.secho("\n🤖 Answer:", fg=typer.colors.GREEN)
         typer.echo(answer_one(question))
         raise typer.Exit(0)
 
-    typer.echo("Chat with ShoppingAssistant. Type 'exit' to quit.")
+    typer.secho("\n💬 Chat with Shopping Assistant", fg=typer.colors.CYAN, bold=True)
+    typer.secho("Type 'exit' or 'quit' to leave. Press Ctrl+C to interrupt.\n", fg=typer.colors.WHITE)
+    
     while True:
         try:
-            q = input("You: ").strip()
+            typer.secho("You: ", fg=typer.colors.YELLOW, bold=True, nl=False)
+            q = input().strip()
         except (EOFError, KeyboardInterrupt):
-            typer.echo("\nBye.")
+            typer.secho("\n👋 Goodbye!", fg=typer.colors.CYAN)
             break
         if q.lower() in {"exit", "quit"}:
-            typer.echo("Bye.")
+            typer.secho("👋 Goodbye!", fg=typer.colors.CYAN)
             break
         if not q:
             continue
+        
+        typer.secho("\n🤖 Assistant: ", fg=typer.colors.GREEN, bold=True, nl=False)
         a = answer_one(q)
-        typer.echo(f"Assistant: {a}\n")
+        typer.echo(f"{a}\n")
 
 
 # -------------------------
@@ -578,7 +623,7 @@ def eval_search(
     try:
         llm_config.configure_ragas()
     except ValueError as e:
-        typer.echo(f"Error: {e}", err=True)
+        typer.secho(f"❌ Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
     results_dir, _ = _ensure_dirs()
@@ -736,11 +781,10 @@ def eval_search(
             aggregates[variant] = scores
             for k, v in scores.items():
                 mlflow.log_metric(f"{variant}_{k}", v)
-            typer.echo(
-                f"Evaluated {variant}: "
-                + ", ".join([f"{m}={aggregates[variant].get(m, float('nan')):.4f}" for m in sorted(aggregates[variant].keys())])
-                if aggregates[variant]
-                else f"Evaluated {variant}: no scores"
+            metric_str = ", ".join([f"{m}={aggregates[variant].get(m, float('nan')):.4f}" for m in sorted(aggregates[variant].keys())]) if aggregates[variant] else "no scores"
+            typer.secho(
+                f"  ✓ Evaluated {variant}: {metric_str}",
+                fg=typer.colors.GREEN
             )
 
         # Capture all call parameters
@@ -807,7 +851,9 @@ def eval_search(
         out_md.write_text(md)
         mlflow.log_artifact(str(out_md))
 
-    typer.echo(f"Wrote: {out_json}\nWrote: {out_md}")
+    typer.secho(f"\n✅ Evaluation Complete!", fg=typer.colors.GREEN, bold=True)
+    typer.secho(f"  💾 JSON: {out_json}", fg=typer.colors.WHITE)
+    typer.secho(f"  📄 Report: {out_md}", fg=typer.colors.WHITE)
 
 
 @app.command("eval-chat")
@@ -833,7 +879,7 @@ def eval_chat(
         lm = llm_config.get_dspy_lm(task="chat")  # For generating answers
         dspy.configure(lm=lm)
     except ValueError as e:
-        typer.echo(f"Error: {e}", err=True)
+        typer.secho(f"❌ Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
     results_dir, _ = _ensure_dirs()
@@ -855,9 +901,16 @@ def eval_chat(
             texts.append(_to_context_text(p))
         return texts[:top_k]
 
+    typer.secho("\n📊 Starting Chat Evaluation", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"  Dataset: {dataset}", fg=typer.colors.WHITE)
+    typer.secho(f"  Top-K contexts: {top_k}", fg=typer.colors.WHITE)
+    typer.secho(f"  Max samples: {max_samples}", fg=typer.colors.WHITE)
+    
     rows_in = _load_jsonl(dataset, max_samples=max_samples, seed=seed)
+    typer.secho(f"\n⏳ Generating answers for {len(rows_in)} questions...", fg=typer.colors.BLUE)
+    
     rows_eval: list[dict] = []
-    for row in rows_in:
+    for idx, row in enumerate(rows_in, 1):
         q = row.get("question") or row.get("query") or ""
         if not q:
             continue
@@ -870,11 +923,16 @@ def eval_chat(
             "answer": ans,
             "ground_truth": row.get("reference_answer") or "",
         })
+        
+        if idx % 5 == 0 or idx == len(rows_in):
+            typer.secho(f"  Processed {idx}/{len(rows_in)} questions", fg=typer.colors.BLUE)
 
     timestamp = _get_timestamp()
     out_json = results_dir / f"chat_{timestamp}.json"
     out_md = results_dir / f"chat_{timestamp}.md"
 
+    typer.secho(f"\n⏳ Running RAGAS evaluation...", fg=typer.colors.BLUE)
+    
     with mlflow.start_run(run_name=f"eval-chat-{timestamp}"):
         mlflow.log_param("top_k", top_k)
         mlflow.log_param("max_samples", max_samples)
@@ -927,15 +985,18 @@ def eval_chat(
                         except (TypeError, ValueError):
                             pass
         except Exception as e:
-            typer.echo(f"Warning: Could not extract scores from evaluation result: {e}", err=True)
-            # Debug: show what we actually got
-            typer.echo(f"Result type: {type(res)}", err=True)
-            if hasattr(res, 'scores'):
-                typer.echo(f"res.scores type: {type(res.scores)}", err=True)
+            typer.secho(f"⚠️  Warning: Could not extract scores from evaluation result: {e}", fg=typer.colors.YELLOW, err=True)
             scores = {"error": 0.0}
         
         for k, v in scores.items():
             mlflow.log_metric(k, v)
+        
+        # Display scores
+        if scores and "error" not in scores:
+            typer.secho("\n✓ Evaluation Metrics:", fg=typer.colors.GREEN, bold=True)
+            for metric, value in scores.items():
+                color = typer.colors.GREEN if value > 0.8 else typer.colors.YELLOW if value > 0.6 else typer.colors.RED
+                typer.secho(f"  {metric}: {value:.4f}", fg=color)
 
         # Capture all call parameters
         call_params = {
@@ -979,7 +1040,9 @@ def eval_chat(
         out_md.write_text(md)
         mlflow.log_artifact(str(out_md))
 
-    typer.echo(f"Wrote: {out_json}\nWrote: {out_md}")
+    typer.secho(f"\n✅ Evaluation Complete!", fg=typer.colors.GREEN, bold=True)
+    typer.secho(f"  💾 JSON: {out_json}", fg=typer.colors.WHITE)
+    typer.secho(f"  📄 Report: {out_md}", fg=typer.colors.WHITE)
 
 if __name__ == "__main__":
     # Allow both `python app/cli.py` and `python -m app.cli`
