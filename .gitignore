@@ -13,3 +13,9 @@ wheels/
 /qdrant_data
 /redis_data
 /.env
+/eval/results
+/mlruns
+/test_vec_fix.py
+/docs/EVAL_ISSUES_FIXED.md
+/diagnose_eval_issues.py
+/EVALUATIONS_ROADMAP.md

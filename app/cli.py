@@ -390,10 +390,23 @@ def search(
         reverse=True,
     )[:top_k]
 
-    # Vectors
+    # Vectors - need to map UUIDs back to original IDs
     q_vec = st_model.encode([query], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
-    prod_vec = [(pid, s) for pid, s, _ in _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)]
-    rev_vec = [(rid, s) for rid, s, _ in _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)]
+    prod_vec_raw = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)
+    rev_vec_raw = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)
+    
+    # Map to original IDs from payload
+    prod_vec = []
+    for uuid, score, payload in prod_vec_raw:
+        original_id = payload.get('original_id', payload.get('id', ''))
+        if original_id and original_id in id_to_product:
+            prod_vec.append((original_id, score))
+    
+    rev_vec = []
+    for uuid, score, payload in rev_vec_raw:
+        original_id = payload.get('original_id', payload.get('id', ''))
+        if original_id and original_id in id_to_review:
+            rev_vec.append((original_id, score))
 
     fused = _rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=rrf_k)
     fused_sorted = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:50]
@@ -600,8 +613,22 @@ def eval_search(
         rev_vec = []
         if variant in {"vec", "rrf", "rrf_ce"}:
             q_vec = st_model.encode([q], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
-            prod_vec = [(pid, s) for pid, s, _ in _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)]
-            rev_vec = [(rid, s) for rid, s, _ in _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)]
+            # Vector search returns UUIDs, need to map back to original IDs using payload
+            prod_vec_raw = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)
+            rev_vec_raw = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)
+            
+            # Map UUID results to original_id from payload
+            prod_vec = []
+            for uuid, score, payload in prod_vec_raw:
+                original_id = payload.get('original_id', payload.get('id', ''))
+                if original_id:
+                    prod_vec.append((original_id, score))
+            
+            rev_vec = []
+            for uuid, score, payload in rev_vec_raw:
+                original_id = payload.get('original_id', payload.get('id', ''))
+                if original_id:
+                    rev_vec.append((original_id, score))
 
         ids: list[str] = []
         if variant == "bm25":
