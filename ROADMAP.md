@@ -5,8 +5,8 @@ Preprocess text: combine title + description for products; title + text for revi
 Normalization: cosine distance in Qdrant with L2-normalized vectors.
 Batch sizes are tuned conservatively (128/256); adjust if you have more memory/CPU.
 Next steps:
-Add BM25 keyword search and reciprocal rank fusion with vectors.
-Add cross-encoder reranking for top-K candidates.
+done: Add BM25 keyword search and reciprocal rank fusion with vectors.
+done: Add cross-encoder reranking for top-K candidates.
 Periodic refresh jobs to re-embed updated content.
 Guardrails for toxic/PII content in reviews before surfacing.
 If you want, I can wire a small retrieval function that queries both collections and fuses results.
