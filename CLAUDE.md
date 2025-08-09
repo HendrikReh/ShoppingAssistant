@@ -85,6 +85,8 @@ uv run marimo edit notebooks/ingest_embeddings.py
 - Added `notebooks/ingest_embeddings.py` for vector embeddings ingestion - embeds products and reviews using thenlper/gte-large model (1024-dim) and stores in Qdrant collections
 - Added `notebooks/ecommerce_analysis.py` as a Marimo notebook that reads `data/top_1000_products.jsonl` and `data/100_top_reviews_of_the_top_1000_products.jsonl`, using Polars and Plotly for analysis and charts.
 - Added cross-encoder reranking to `notebooks/retrieval_fusion.py` using `cross-encoder/ms-marco-MiniLM-L-6-v2`. Toggle via "Use cross-encoder rerank" and control "Rerank top-K after fusion".
+- Added `app/cli.py` Typer CLI for ingestion, search (BM25+vectors+RRF+CE), and DSPy-based chat.
+- Added docs: `docs/CLI.md`, `docs/EVALUATION.md`, and dataset guidance under `eval/datasets/`.
 
 ### Technology Stack
 - **Data Processing**: Polars for fast dataframe operations

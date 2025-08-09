@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Iterable, List, Tuple
 
 import typer
+from app.llm_config import get_llm_config
 
 
 # Third-party deps loaded lazily in functions to speed up CLI startup
@@ -53,8 +54,14 @@ def _root(ctx: typer.Context) -> None:
 def _read_jsonl(path: Path) -> list[dict]:
     rows: list[dict] = []
     with path.open("r") as fp:
-        for line in fp:
-            rows.append(json.loads(line.strip()))
+        for idx, line in enumerate(fp, start=1):
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                rows.append(json.loads(s))
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON at {path}:{idx}: {e}") from e
     return rows
 
 
@@ -431,9 +438,14 @@ def chat(
 
     import dspy
 
-    # Configure LM (assumes OPENAI_API_KEY is set) per memory
-    lm = dspy.LM("openai/gpt-4o-mini")
-    dspy.configure(lm=lm)
+    # Use central LLM configuration
+    llm_config = get_llm_config()
+    try:
+        lm = llm_config.get_dspy_lm(task="chat")
+        dspy.configure(lm=lm)
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
     # Simple RAG module: question + context -> answer
     rag = dspy.Predict("question, context -> answer")
@@ -480,6 +492,348 @@ def chat(
         a = answer_one(q)
         typer.echo(f"Assistant: {a}\n")
 
+
+# -------------------------
+# Evaluation Commands
+# -------------------------
+
+def _ensure_dirs() -> tuple[Path, Path]:
+    results_dir = Path("eval/results")
+    datasets_dir = Path("eval/datasets")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    datasets_dir.mkdir(parents=True, exist_ok=True)
+    return results_dir, datasets_dir
+
+
+def _save_json(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, indent=2))
+
+
+def _write_markdown_table(headers: list[str], rows: list[list[str]]) -> str:
+    head = "| " + " | ".join(headers) + " |"
+    sep = "| " + " | ".join(["---"] * len(headers)) + " |"
+    body = "\n".join(["| " + " | ".join(r) + " |" for r in rows])
+    return "\n".join([head, sep, body])
+
+
+def _load_jsonl(path: Path, max_samples: int | None = None, seed: int = 42) -> list[dict]:
+    import random
+
+    rng = random.Random(seed)
+    rows = _read_jsonl(path)
+    if max_samples is not None and len(rows) > max_samples:
+        rows = rng.sample(rows, max_samples)
+    return rows
+
+
+def _to_context_text(payload: dict) -> str:
+    if "description" in payload:
+        return f"Title: {payload.get('title','')}\nDescription: {payload.get('description','')}"
+    if "text" in payload:
+        return f"Title: {payload.get('title','')}\nReview: {payload.get('text','')}"
+    return json.dumps(payload)
+
+
+@app.command("eval-search")
+def eval_search(
+    dataset: Path = typer.Option(..., exists=True, readable=True, help="JSONL with {query}"),
+    products_path: Path = typer.Option(DATA_PRODUCTS, exists=True),
+    reviews_path: Path = typer.Option(DATA_REVIEWS, exists=True),
+    top_k: int = typer.Option(20),
+    rrf_k: int = typer.Option(60),
+    rerank_top_k: int = typer.Option(30),
+    variants: str = typer.Option("bm25,vec,rrf,rrf_ce"),
+    max_samples: int = typer.Option(100),
+    seed: int = typer.Option(42),
+) -> None:
+    """Evaluate retrieval variants; logs metrics and report to eval/results and MLflow."""
+
+    import mlflow
+    from datasets import Dataset
+    from ragas import evaluate as ragas_evaluate
+    # Use metrics that don't require reference answers
+    from ragas.metrics import ContextRelevance, ContextUtilization
+    
+    # Configure LLM for RAGAS evaluation
+    llm_config = get_llm_config()
+    try:
+        llm_config.configure_ragas()
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+    results_dir, _ = _ensure_dirs()
+    device = _device_str()
+    st_model = _load_st_model(EMBED_MODEL, device=device)
+    client = _qdrant_client()
+    bm25_prod, bm25_rev, id_to_product, id_to_review = _bm25_from_files(products_path, reviews_path)
+
+    queries = _load_jsonl(dataset, max_samples=max_samples, seed=seed)
+    variant_list = [v.strip() for v in variants.split(",") if v.strip()]
+
+    typer.echo("Starting eval-search with configuration:")
+    typer.echo(f"- Dataset: {dataset}")
+    typer.echo(f"- Samples (requested): {max_samples}; (loaded): {len(queries)}")
+    typer.echo(f"- Variants: {', '.join(variant_list)}")
+    typer.echo(f"- top_k={top_k} rrf_k={rrf_k} rerank_top_k={rerank_top_k}")
+    typer.echo(f"- Device: {device}; Embed model: {EMBED_MODEL}")
+
+    def run_variant(q: str, variant: str) -> list[dict]:
+        """Return list of payload dicts for top_k contexts under a variant."""
+        q_tokens = _tokenize(q)
+        prod_ranked = []
+        rev_ranked = []
+
+        if variant in {"bm25", "rrf", "rrf_ce"}:
+            bm25_prod_scores = bm25_prod.get_scores(q_tokens)
+            bm25_rev_scores = bm25_rev.get_scores(q_tokens)
+            prod_ranked = sorted(
+                [(pid, float(s)) for pid, s in zip(id_to_product.keys(), bm25_prod_scores)],
+                key=lambda x: x[1], reverse=True,
+            )[:top_k]
+            rev_ranked = sorted(
+                [(rid, float(s)) for rid, s in zip(id_to_review.keys(), bm25_rev_scores)],
+                key=lambda x: x[1], reverse=True,
+            )[:top_k]
+
+        prod_vec = []
+        rev_vec = []
+        if variant in {"vec", "rrf", "rrf_ce"}:
+            q_vec = st_model.encode([q], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
+            prod_vec = [(pid, s) for pid, s, _ in _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)]
+            rev_vec = [(rid, s) for rid, s, _ in _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)]
+
+        ids: list[str] = []
+        if variant == "bm25":
+            ids = [pid for pid, _ in prod_ranked] + [rid for rid, _ in rev_ranked]
+        elif variant == "vec":
+            ids = [pid for pid, _ in prod_vec] + [rid for rid, _ in rev_vec]
+        else:
+            fused = _rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=rrf_k)
+            fused_sorted = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:top_k]
+            if variant == "rrf_ce" and fused_sorted:
+                k_ce = min(rerank_top_k, len(fused_sorted))
+                candidates: list[tuple[str, str]] = []
+                for _id, _ in fused_sorted[:k_ce]:
+                    if _id.startswith("prod::") and _id in id_to_product:
+                        p = id_to_product[_id]
+                        candidates.append((_id, f"{p.get('title','')}\n{p.get('description','')}"))
+                    elif _id.startswith("rev::") and _id in id_to_review:
+                        r = id_to_review[_id]
+                        candidates.append((_id, f"{r.get('title','')}\n{r.get('text','')}"))
+                ranked = _cross_encoder_scores(CROSS_ENCODER_MODEL, device, q, candidates)
+                ce_scores = {cid: score for cid, score in ranked}
+                fused_sorted = sorted(fused_sorted, key=lambda x: (ce_scores.get(x[0], float("-inf")), x[1]), reverse=True)
+            ids = [i for i, _ in fused_sorted]
+
+        payloads: list[dict] = []
+        for _id in ids[:top_k]:
+            if _id.startswith("prod::") and _id in id_to_product:
+                payloads.append(id_to_product[_id])
+            elif _id.startswith("rev::") and _id in id_to_review:
+                payloads.append(id_to_review[_id])
+        return payloads
+
+    timestamp = str(int(time.time()))
+    out_json = results_dir / f"search_{timestamp}.json"
+    out_md = results_dir / f"search_{timestamp}.md"
+
+    with mlflow.start_run(run_name=f"eval-search-{timestamp}"):
+        mlflow.log_param("variants", ",".join(variant_list))
+        mlflow.log_param("top_k", top_k)
+        mlflow.log_param("rrf_k", rrf_k)
+        mlflow.log_param("rerank_top_k", rerank_top_k)
+        mlflow.log_param("max_samples", max_samples)
+
+        variant_to_rows: dict[str, list[dict]] = {v: [] for v in variant_list}
+        typer.echo("Collecting contexts per variant...")
+        variant_counts: dict[str, int] = {v: 0 for v in variant_list}
+        start_collect = time.time()
+        for idx, row in enumerate(queries, start=1):
+            q = row.get("query") or row.get("question") or ""
+            if not q:
+                continue
+            for variant in variant_list:
+                payloads = run_variant(q, variant)
+                contexts = [_to_context_text(p) for p in payloads[:top_k]]
+                variant_to_rows[variant].append({"question": q, "contexts": contexts, "answer": ""})
+                variant_counts[variant] += 1
+            if idx % 10 == 0:
+                elapsed = time.time() - start_collect
+                typer.echo(
+                    f"  processed {idx}/{len(queries)} queries in {elapsed:.1f}s; per-variant: "
+                    + ", ".join([f"{v}={variant_counts[v]}" for v in variant_list])
+                )
+
+        # Evaluate with RAGAS metric that works without references
+        aggregates: dict[str, dict[str, float]] = {}
+        for variant, rows in variant_to_rows.items():
+            if not rows:
+                aggregates[variant] = {}
+                continue
+            ds = Dataset.from_list(rows)
+            try:
+                res = ragas_evaluate(ds, metrics=[ContextRelevance(), ContextUtilization()])
+                scores: dict[str, float] = {}
+                # Try to aggregate robustly across ragas versions
+                try:
+                    df = res.to_pandas()  # type: ignore[attr-defined]
+                    for col in df.columns:
+                        if col in {"question", "answer", "contexts", "ground_truth"}:
+                            continue
+                        try:
+                            scores[col] = float(df[col].astype(float).mean())
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                # Fallback: dict-like
+                if not scores:
+                    try:
+                        for k, v in dict(res).items():  # type: ignore[arg-type]
+                            try:
+                                scores[k] = float(v)
+                            except Exception:
+                                continue
+                    except Exception:
+                        scores = {}
+            except Exception as e:
+                typer.echo(f"Error evaluating {variant}: {e}", err=True)
+                raise
+            aggregates[variant] = scores
+            for k, v in scores.items():
+                mlflow.log_metric(f"{variant}_{k}", v)
+            typer.echo(
+                f"Evaluated {variant}: "
+                + ", ".join([f"{m}={aggregates[variant].get(m, float('nan')):.4f}" for m in sorted(aggregates[variant].keys())])
+                if aggregates[variant]
+                else f"Evaluated {variant}: no scores"
+            )
+
+        report = {
+            "config": {
+                "variants": variant_list,
+                "top_k": top_k,
+                "rrf_k": rrf_k,
+                "rerank_top_k": rerank_top_k,
+                "max_samples": max_samples,
+                "dataset": str(dataset),
+                "device": device,
+                "embed_model": EMBED_MODEL,
+            },
+            "aggregates": aggregates,
+        }
+        _save_json(out_json, report)
+        mlflow.log_artifact(str(out_json))
+
+        # Markdown side-by-side table
+        headers = ["metric"] + variant_list
+        metrics_set = set()
+        for v in variant_list:
+            metrics_set.update(aggregates.get(v, {}).keys())
+        rows_md: list[list[str]] = []
+        for metric in sorted(metrics_set):
+            row = [metric] + [f"{aggregates.get(v, {}).get(metric, float('nan')):.4f}" for v in variant_list]
+            rows_md.append(row)
+        md_config = (
+            f"- dataset: `{dataset}`\n"
+            f"- samples_used: {len(queries)}\n"
+            f"- variants: {', '.join(variant_list)}\n"
+            f"- top_k={top_k} rrf_k={rrf_k} rerank_top_k={rerank_top_k}\n"
+            f"- device: {device} embed_model: `{EMBED_MODEL}`\n"
+        )
+        md = "# Search Evaluation\n\n## Config\n" + md_config + "\n## Metrics\n" + _write_markdown_table(headers, rows_md) + "\n"
+        out_md.write_text(md)
+        mlflow.log_artifact(str(out_md))
+
+    typer.echo(f"Wrote: {out_json}\nWrote: {out_md}")
+
+
+@app.command("eval-chat")
+def eval_chat(
+    dataset: Path = typer.Option(..., exists=True, readable=True, help="JSONL with {question}"),
+    top_k: int = typer.Option(8),
+    max_samples: int = typer.Option(50),
+    seed: int = typer.Option(42),
+) -> None:
+    """Evaluate single-turn chat using RAGAS metrics; logs to eval/results and MLflow."""
+
+    import mlflow
+    from datasets import Dataset
+    from ragas import evaluate as ragas_evaluate
+    from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
+    import dspy
+
+    # Configure LLMs for both DSPy chat and RAGAS evaluation
+    llm_config = get_llm_config()
+    try:
+        llm_config.configure_ragas()  # For evaluation
+        lm = llm_config.get_dspy_lm(task="chat")  # For generating answers
+        dspy.configure(lm=lm)
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+    results_dir, _ = _ensure_dirs()
+    device = _device_str()
+    st_model = _load_st_model(EMBED_MODEL, device=device)
+    client = _qdrant_client()
+
+    rag = dspy.Predict("question, context -> answer")
+
+    def retrieve(q: str) -> list[str]:
+        q_vec = (
+            st_model.encode([q], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
+        )
+        prod_hits = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)
+        rev_hits = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)
+        payloads = [p for _, _, p in (prod_hits + rev_hits)]
+        texts: list[str] = []
+        for p in payloads:
+            texts.append(_to_context_text(p))
+        return texts[:top_k]
+
+    rows_in = _load_jsonl(dataset, max_samples=max_samples, seed=seed)
+    rows_eval: list[dict] = []
+    for row in rows_in:
+        q = row.get("question") or row.get("query") or ""
+        if not q:
+            continue
+        ctxs = retrieve(q)
+        pred = rag(question=q, context="\n\n".join(ctxs))
+        ans = getattr(pred, "answer", "")
+        rows_eval.append({
+            "question": q,
+            "contexts": ctxs,
+            "answer": ans,
+            "ground_truth": row.get("reference_answer") or "",
+        })
+
+    timestamp = str(int(time.time()))
+    out_json = results_dir / f"chat_{timestamp}.json"
+    out_md = results_dir / f"chat_{timestamp}.md"
+
+    with mlflow.start_run(run_name=f"eval-chat-{timestamp}"):
+        mlflow.log_param("top_k", top_k)
+        mlflow.log_param("max_samples", max_samples)
+        ds = Dataset.from_list(rows_eval)
+        res = ragas_evaluate(ds, metrics=[faithfulness, answer_relevancy, context_precision, context_recall])
+        scores = {k: float(res[k]) for k in res.keys()}
+        for k, v in scores.items():
+            mlflow.log_metric(k, v)
+
+        report = {
+            "config": {"top_k": top_k, "max_samples": max_samples},
+            "aggregates": scores,
+        }
+        _save_json(out_json, report)
+        mlflow.log_artifact(str(out_json))
+
+        md = "# Chat Evaluation\n\n" + _write_markdown_table(["metric", "score"], [[k, f"{v:.4f}"] for k, v in scores.items()]) + "\n"
+        out_md.write_text(md)
+        mlflow.log_artifact(str(out_md))
+
+    typer.echo(f"Wrote: {out_json}\nWrote: {out_md}")
 
 if __name__ == "__main__":
     # Allow both `python app/cli.py` and `python -m app.cli`
