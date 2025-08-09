@@ -22,7 +22,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
+    intro = mo.md(
         """
     ## Loading Product and Review Data
 
@@ -30,10 +30,10 @@ def _(mo):
     - Top electronics products (up to 1000)
     - Top reviews for those products
 
-    Let's start by loading the datasets.
+    Use the tabs to navigate sections.
     """
     )
-    return
+    return (intro,)
 
 
 @app.cell
@@ -90,16 +90,16 @@ def _(mo, products_df, reviews_df_raw):
         reviews_count / products_count if products_count > 0 else float("nan")
     )
 
-    mo.md(
+    overview_card = mo.callout(
         f"""
-    ## Dataset Overview
-
-    - **Products loaded:** {products_count:,}
-    - **Reviews loaded:** {reviews_count:,}
-    - **Average reviews per product:** {avg_reviews_per_product:.1f}
-    - **Date range of reviews:** {date_range}
-    """
+        - **Products loaded:** {products_count:,}
+        - **Reviews loaded:** {reviews_count:,}
+        - **Average reviews per product:** {avg_reviews_per_product:.1f}
+        - **Date range of reviews:** {date_range}
+        """,
+        kind="info",
     )
+    mo.vstack([mo.md("## Dataset Overview"), overview_card], align="stretch", gap=0.5)
     return avg_reviews_per_product, date_range, products_count, reviews_count
 
 
@@ -134,15 +134,10 @@ def _(mo, pl, products_df):
         .with_columns(pl.col("title").str.slice(0, 80) + "...")
     )
 
-    mo.md(
-        f"""
-    ### Most Reviewed Products
-    {mo.ui.table(top_by_reviews.to_pandas(), pagination=False)}
-
-    ### Highest Rated Products (min 100 reviews)
-    {mo.ui.table(top_by_rating.to_pandas(), pagination=False)}
-    """
-    )
+    mo.tabs({
+        "Most Reviewed": mo.ui.table(top_by_reviews.to_pandas(), pagination=False),
+        "Highest Rated (>=100)": mo.ui.table(top_by_rating.to_pandas(), pagination=False),
+    })
     return top_by_rating, top_by_reviews
 
 
@@ -153,7 +148,7 @@ def _(mo):
 
 
 @app.cell
-def _(go, pl, products_df, reviews_df_raw):
+def _(go, mo, pl, products_df, reviews_df_raw):
     # Rating distribution for products
     product_ratings = (
         products_df
@@ -199,7 +194,7 @@ def _(go, pl, products_df, reviews_df_raw):
         height=420,
     )
 
-    fig_ratings
+    mo.ui.plotly(fig_ratings)
     return fig_ratings, product_ratings, review_ratings
 
 
@@ -530,7 +525,14 @@ def _(mo, pl, products_df, reviews_df_raw, search_term):
             view = mo.md(f"No products found matching '{search_term.value}'")
     else:
         view = mo.md("*Enter a search term above to find products*")
-    view
+    mo.tabs({
+        "Search": view,
+        "Stats": mo.md(
+            f"""
+            **Products:** {products_df.height:,} • **Reviews:** {reviews_df_raw.height:,}
+            """
+        ),
+    })
 
     return first_product, product_reviews, search_results
 

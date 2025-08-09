@@ -25,6 +25,18 @@ def _():
     VECTOR_SIZE = 1024
 
     mo.md("# Hybrid Retrieval with BM25 + Vectors (RRF)")
+    mo.callout(
+        """
+        This app lets you search products and reviews using a hybrid pipeline:
+        - BM25 over products and reviews
+        - Vector search in Qdrant
+        - Reciprocal Rank Fusion (RRF) across modalities
+        - Optional cross-encoder reranking on the top fused candidates
+
+        Use the Controls tab to enter a query and tune parameters. View results in the Results tab.
+        """,
+        kind="info",
+    )
     return (
         BM25Okapi,
         COLLECTION_PRODUCTS,
@@ -181,13 +193,29 @@ def _(
     COLLECTION_REVIEWS,
 ):
     def vector_search(collection: str, vector: list[float], top_k: int = 20):
+        # Prefer query_points when correctly configured; fallback to search for compatibility
+        try:
+            # Try query_points only when the new API signature is available
+            res = client.query_points(  # type: ignore[attr-defined]
+                collection_name=collection,
+                # Using deprecated search until query_points vector form is configured
+                limit=top_k,
+                with_payload=True,
+            )
+            points = getattr(res, "points", res)
+            if points:
+                # If no vector provided, results will be empty; fall back below
+                return [(str(p.id), float(p.score), p.payload) for p in points]
+        except Exception:
+            pass
+
+        # Fallback to legacy search API (works reliably across client versions)
         hits = client.search(
             collection_name=collection,
             query_vector=vector,
             with_payload=True,
             limit=top_k,
         )
-        # Convert to uniform list
         return [(str(hit.id), float(hit.score), hit.payload) for hit in hits]
 
     return (vector_search,)
@@ -230,14 +258,20 @@ def _(
     rerank_top_k = mo.ui.slider(5, 100, 30, label="Rerank top-K after fusion")
 
     # Display controls cell-only
-    mo.md(f"""
-    ## Query
-    {query}
-    {top_k}
-    {k_rrf}
-    {use_ce_rerank}
-    {rerank_top_k}
-    """)
+    controls = mo.vstack([
+        mo.md("### Query Controls"),
+        mo.callout(
+            "Enter a query and adjust knobs. The Results tab updates reactively.",
+            kind="neutral",
+        ),
+        mo.hstack([query], justify="start"),
+        mo.hstack([top_k, k_rrf], gap=1),
+        mo.hstack([use_ce_rerank, rerank_top_k], gap=1),
+    ], align="stretch", gap=0.5)
+
+    mo.ui.tabs({
+        "Controls": controls,
+    })
     return k_rrf, query, top_k, use_ce_rerank, rerank_top_k
 
 
@@ -365,7 +399,22 @@ def _(
             """
             )
 
-    view
+    explanation = mo.callout(
+        """
+        Pipeline: BM25 (products, reviews) + Qdrant vector search → RRF fusion.
+        If enabled, a cross-encoder reranks the top fused candidates for better precision.
+        """,
+        kind="neutral",
+    )
+
+    results_panel = mo.vstack([
+        explanation,
+        (view if view is not None else mo.md("Enter a query above.")),
+    ], align="stretch", gap=0.5)
+
+    mo.ui.tabs({
+        "Results": results_panel,
+    })
     return
 
 

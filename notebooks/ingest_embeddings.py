@@ -21,7 +21,24 @@ def _():
     MODEL_NAME = "thenlper/gte-large"
     VECTOR_SIZE = 1024
 
-    mo.md("# Ingest and Embed: Products and Reviews → Qdrant (gte-large)")
+    header_panel = mo.vstack([
+        mo.md("# Ingest and Embed: Products and Reviews → Qdrant (gte-large)"),
+        mo.callout(
+            mo.md(
+                """
+                ### This notebook performs four steps:
+                - **Controls**: Set batch sizes and press "Start Ingestion".
+                - **Embedding**: Encode product and review texts with `thenlper/gte-large` on the selected device.
+                - **Upsert**: Write vectors and payloads to Qdrant with deterministic UUIDs (`original_id` kept in payload).
+                - **Summary**: Display throughput, total counts, device, and collection details at the end.
+
+                Prerequisites: Qdrant running locally (`docker-compose up`) and data files present in `data/`.
+                """
+            ),
+            kind="info",
+        ),
+    ], align="stretch", gap=0.5)
+    header_panel
     return (
         COLLECTION_PRODUCTS,
         COLLECTION_REVIEWS,
@@ -41,15 +58,14 @@ def _():
 @app.cell
 def _(MODEL_NAME):
     import torch
-    from importlib import import_module
 
     device = (
         "mps" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "cpu"
     )
 
     def load_model(model_name: str, target_device: str):
-        st = import_module("sentence_transformers")
-        SentenceTransformer = getattr(st, "SentenceTransformer")
+        # Local import avoids cross-cell global name collisions
+        from sentence_transformers import SentenceTransformer
         return SentenceTransformer(model_name, device=target_device)
 
     model = load_model(MODEL_NAME, device)
@@ -257,25 +273,18 @@ def _(
     reviews_df,
     to_text_for_product,
     to_text_for_review,
-    COLLECTION_PRODUCTS,
-    COLLECTION_REVIEWS,
-    VECTOR_SIZE,
-    MODEL_NAME,
-    mo,
 ):
-    import time
-
     def upsert_points(collection: str, vectors: list[list[float]], payloads: list[dict], ids: list[str]) -> None:
         # Convert string IDs to UUIDs deterministically based on the string content
         import hashlib
         import uuid
-        
+
         uuid_ids = []
         for str_id in ids:
             # Create deterministic UUID from string ID
             hash_obj = hashlib.md5(str_id.encode())
             uuid_ids.append(str(uuid.UUID(hash_obj.hexdigest())))
-        
+
         client.upsert(
             collection_name=collection,
             points=[
@@ -303,95 +312,139 @@ def _(
         else:
             return f"{seconds/3600:.1f}h"
 
-    # Build docs
+    # Build docs (lightweight)
     product_docs = build_product_docs(products_df)
     review_docs = build_review_docs(reviews_df)
-    
+
     total_products = len(product_docs)
     total_reviews = len(review_docs)
-    
-    # Ingest products
-    print(f"[products] device={device} total={total_products}")
-    
-    product_start_time = time.time()
-    processed_products = 0
-    product_batch_size = 128
-    
-    for batch_idx, batch in enumerate(chunked(product_docs, product_batch_size)):
-        # Prepare texts
-        texts = [to_text_for_product(d["title"], d["description"]) for d in batch]
-        
-        # Embed
-        vectors = embed_texts(texts)
-        
-        # Store in Qdrant
-        ids = [d["id"] for d in batch]
-        upsert_points(COLLECTION_PRODUCTS, vectors, batch, ids)
-        
-        # Update progress
-        processed_products += len(batch)
-        elapsed = time.time() - product_start_time
-        rate = processed_products / elapsed if elapsed > 0 else 0
-        eta = (total_products - processed_products) / rate if rate > 0 else 0
-        progress_pct = processed_products * 100 / total_products
-        print(
-            f"[products] batch={batch_idx + 1} count={processed_products}/{total_products} ({progress_pct:.1f}%) "
-            f"speed={rate:.1f}/s elapsed={format_time(elapsed)} eta~{format_time(eta)}"
-        )
-    
-    product_time = time.time() - product_start_time
-    
-    # Ingest reviews
-    print(f"[reviews] total={total_reviews} starting…")
-    
-    review_start_time = time.time()
-    processed_reviews = 0
-    review_batch_size = 256
-    
-    for batch_idx, batch in enumerate(chunked(review_docs, review_batch_size)):
-        # Prepare texts
-        texts = [to_text_for_review(d["title"], d["text"]) for d in batch]
-        
-        # Embed
-        vectors = embed_texts(texts)
-        
-        # Store in Qdrant
-        ids = [d["id"] for d in batch]
-        upsert_points(COLLECTION_REVIEWS, vectors, batch, ids)
-        
-        # Update progress
-        processed_reviews += len(batch)
-        elapsed = time.time() - review_start_time
-        rate = processed_reviews / elapsed if elapsed > 0 else 0
-        eta = (total_reviews - processed_reviews) / rate if rate > 0 else 0
-        progress_pct = processed_reviews * 100 / total_reviews
-        print(
-            f"[reviews] batch={batch_idx + 1} count={processed_reviews}/{total_reviews} ({progress_pct:.1f}%) "
-            f"speed={rate:.1f}/s elapsed={format_time(elapsed)} eta~{format_time(eta)}"
-        )
-    
-    review_time = time.time() - review_start_time
-    total_time = time.time() - product_start_time
-    
-    # Final summary
-    summary = f"""
-    ## ✅ Embedding Complete!
-    
-    ### 📊 Summary
-    - **Products:** {total_products:,} embedded in {format_time(product_time)} ({total_products/product_time:.1f} items/sec)
-    - **Reviews:** {total_reviews:,} embedded in {format_time(review_time)} ({total_reviews/review_time:.1f} items/sec)
-    - **Total Time:** {format_time(total_time)}
-    - **Device:** {device}
-    
-    ### 💾 Storage
-    - **Products Collection:** `{COLLECTION_PRODUCTS}` 
-    - **Reviews Collection:** `{COLLECTION_REVIEWS}`
-    - **Vector Dimensions:** {VECTOR_SIZE}
-    - **Model:** {MODEL_NAME}
-    """
-    
-    mo.md(summary)
-    return summary
+
+    return (
+        upsert_points,
+        chunked,
+        format_time,
+        product_docs,
+        review_docs,
+        total_products,
+        total_reviews,
+        to_text_for_product,
+        to_text_for_review,
+        embed_texts,
+        device,
+    )
+
+@app.cell
+def _(mo):
+    # UI controls must be created in a separate cell from where their values are read
+    start_button = mo.ui.run_button(label="Start Ingestion", tooltip="Embed and upsert all products & reviews")
+    params = mo.ui.dictionary({
+        "Product batch size": mo.ui.number(32, 1024, value=128, step=32),
+        "Review batch size": mo.ui.number(64, 2048, value=256, step=64),
+    })
+    return start_button, params
+
+@app.cell
+def _(
+    mo,
+    start_button,
+    params,
+    upsert_points,
+    chunked,
+    format_time,
+    product_docs,
+    review_docs,
+    total_products,
+    total_reviews,
+    to_text_for_product,
+    to_text_for_review,
+    embed_texts,
+    device,
+    COLLECTION_PRODUCTS,
+    COLLECTION_REVIEWS,
+    VECTOR_SIZE,
+    MODEL_NAME,
+):
+    import time as _time
+
+    controls_panel = mo.vstack([
+        mo.md("### Controls"),
+        mo.hstack([start_button, params], gap=1),
+    ], align="stretch", gap=0.5)
+
+    summary_panel = mo.callout("Ready to run ingestion. Adjust batch sizes and press Start.", kind="info")
+
+    if start_button.value:
+        # Parse params
+        product_batch_size = int(params.value["Product batch size"]) if isinstance(params.value, dict) else 128
+        review_batch_size = int(params.value["Review batch size"]) if isinstance(params.value, dict) else 256
+
+        # Ingest products
+        print(f"[products] device={device} total={total_products}")
+        product_start_time = _time.time()
+        processed_products = 0
+
+        for batch_idx, batch in enumerate(chunked(product_docs, product_batch_size)):
+            texts = [to_text_for_product(d["title"], d["description"]) for d in batch]
+            vectors = embed_texts(texts)
+            ids = [d["id"] for d in batch]
+            upsert_points(COLLECTION_PRODUCTS, vectors, batch, ids)
+
+            processed_products += len(batch)
+            elapsed = _time.time() - product_start_time
+            rate = processed_products / elapsed if elapsed > 0 else 0
+            eta = (total_products - processed_products) / rate if rate > 0 else 0
+            progress_pct = processed_products * 100 / total_products
+            print(
+                f"[products] batch={batch_idx + 1} count={processed_products}/{total_products} ({progress_pct:.1f}%) "
+                f"speed={rate:.1f}/s elapsed={format_time(elapsed)} eta~{format_time(eta)}"
+            )
+
+        product_time = _time.time() - product_start_time
+
+        # Ingest reviews
+        print(f"[reviews] total={total_reviews} starting…")
+        review_start_time = _time.time()
+        processed_reviews = 0
+
+        for batch_idx, batch in enumerate(chunked(review_docs, review_batch_size)):
+            texts = [to_text_for_review(d["title"], d["text"]) for d in batch]
+            vectors = embed_texts(texts)
+            ids = [d["id"] for d in batch]
+            upsert_points(COLLECTION_REVIEWS, vectors, batch, ids)
+
+            processed_reviews += len(batch)
+            elapsed = _time.time() - review_start_time
+            rate = processed_reviews / elapsed if elapsed > 0 else 0
+            eta = (total_reviews - processed_reviews) / rate if rate > 0 else 0
+            progress_pct = processed_reviews * 100 / total_reviews
+            print(
+                f"[reviews] batch={batch_idx + 1} count={processed_reviews}/{total_reviews} ({progress_pct:.1f}%) "
+                f"speed={rate:.1f}/s elapsed={format_time(elapsed)} eta~{format_time(eta)}"
+            )
+
+        review_time = _time.time() - review_start_time
+        total_time = product_time + review_time
+
+        summary_md = f"""
+        ### ✅ Embedding Complete
+
+        - **Products:** {total_products:,} embedded in {format_time(product_time)} ({total_products/product_time:.1f} items/sec)
+        - **Reviews:** {total_reviews:,} embedded in {format_time(review_time)} ({total_reviews/review_time:.1f} items/sec)
+        - **Total Time:** {format_time(total_time)}
+        - **Device:** {device}
+
+        **Storage**  
+        - Products: `{COLLECTION_PRODUCTS}` • Reviews: `{COLLECTION_REVIEWS}`  
+        - Vector dim: {VECTOR_SIZE} • Model: {MODEL_NAME}
+        """
+        summary_panel = mo.md(summary_md)
+
+    mo.ui.tabs({
+        "Controls": controls_panel,
+        "Summary": summary_panel,
+    })
+
+    return None
 
 
 @app.cell
