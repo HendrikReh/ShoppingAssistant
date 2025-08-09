@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## General instructions
+## General Instructions
 
 During the development phase of this project I will give you examples which are stored under the folder named cohort. Most of the time I will ask you to migrate specific files from the cohort folder to the actually used tech stack of this project (check pyproject.toml).
 You will never change code under the folder cohort neither will you mention its content in any documentation.
@@ -13,14 +13,15 @@ The data stored under data/100_top_reviews_of_the_top_1000_products.jsonl and /V
 
 ## Project Overview
 
-Shopping Assistant is an e-commerce search and recommendation system that combines:
-- Data analysis with Polars for product and review datasets
-- Retrieval Augmented Generation (RAG) using DSPy
-- Vector search with Qdrant
-- Caching with Redis
-- ML experiment tracking with MLflow
+Shopping Assistant is an advanced e-commerce search and recommendation system that combines:
+- Hybrid search (BM25 + semantic vectors) with Reciprocal Rank Fusion
+- Cross-encoder reranking for improved relevance (ms-marco-MiniLM-L-12-v2)
+- Retrieval Augmented Generation (RAG) using DSPy framework
+- Vector search with Qdrant (1024-dim gte-large embeddings)
+- Redis caching layer with 2GB limit and LRU eviction
 - Interactive data analysis with Marimo notebooks
-- Command-line interface with Typer
+- Comprehensive evaluation with RAGAS metrics
+- Full-featured command-line interface with Typer
 
 ## Development Commands
 
@@ -135,63 +136,81 @@ uv run python test_ragas_fix.py
 - **notebooks/retrieval_fusion.py**: Hybrid search implementation with RRF and cross-encoder reranking
 - **main.py**: Entry point for the application (to be expanded)
 
-### Recent Changes (Session 2025-08-09)
+### Recent Changes
 
-#### Major Additions
+#### Session 2025-08-09 Updates
+
+**Major Additions:**
 - **Created app/cli.py**: Full Typer CLI implementation with all core functionality
-- **Created app/llm_config.py**: Centralized LLM configuration with GPT-5 support
+- **Created app/llm_config.py**: Centralized LLM configuration for DSPy and RAGAS
 - **Created eval/datasets/**: Evaluation datasets for search and chat
   - `search_eval.jsonl`: 20 e-commerce search queries
   - `chat_eval.jsonl`: 20 Q&A pairs with reference answers
-- **Upgraded Cross-Encoder**: Switched from ms-marco-MiniLM-L-6-v2 to ms-marco-MiniLM-L-12-v2
+- **Created docs/RAG_EVALUATION_INSIGHTS.md**: Comprehensive guide on interpreting RAG metrics
+- **Enhanced Evaluation Reports**: Added comprehensive call parameters to all reports
+  - JSON reports include `call_parameters` section with all command arguments
+  - Markdown reports include formatted "Call Parameters" section
+  - Full traceability of model configurations, paths, and execution parameters
+
+**Model Upgrades:**
+- **Cross-Encoder**: Upgraded from ms-marco-MiniLM-L-6-v2 to ms-marco-MiniLM-L-12-v2
   - 15-20% better reranking accuracy
-  - Better understanding of nuanced relevance
-  - Still maintains good speed (50-100 docs/sec)
+  - 192% improvement in context utilization (9.1% → 26.6%)
+  - Maintains good speed (50-100 docs/sec)
 
-#### Fixes Applied
-1. **Vector Search ID Mapping**: Fixed UUID to original ID mapping issue
-   - Vector search now properly maps Qdrant UUIDs to `prod::ASIN` format
-   - Enables correct payload retrieval for evaluation
+**Critical Fixes:**
+1. **Vector Search ID Mapping**: Fixed Qdrant UUID to original ID mapping
+   - Extracts `original_id` from payload for correct evaluation
+   - Resolves issue where vector search returned 0 scores
 
-2. **RAGAS Score Extraction**: Fixed handling of EvaluationResult object
-   - Handles `res.scores` as list containing dictionary
-   - Properly extracts metrics with NaN handling
+2. **RAGAS Score Extraction**: Fixed EvaluationResult handling
+   - Properly handles `res.scores` as list containing dictionary
+   - Includes NaN handling for failed evaluations
 
-3. **LiteLLM Dependencies**: Added all required packages
-   - apscheduler
-   - cryptography
-   - python-multipart
-   - email-validator
+3. **Dependencies**: Added missing LiteLLM requirements
+   - apscheduler, cryptography, python-multipart, email-validator
 
-4. **Timestamp Format**: Improved evaluation output naming
-   - Changed from Unix timestamp to YYYYMMDD_HHMMSS format
-   - Example: `search_20250809_174328.json`
+4. **Timestamp Format**: Human-readable evaluation output naming
+   - Format: YYYYMMDD_HHMMSS (e.g., `search_20250809_174328.json`)
 
 5. **LLM Configuration**: Flexible model support
-   - Default: GPT-4o-mini with configurable temperature
-   - GPT-5 support with automatic temperature=1.0 enforcement
-   - Environment variable configuration for API keys
+   - Default: GPT-4o-mini
+   - Environment-based configuration via OPENAI_API_KEY and OPENAI_API_BASE
 
 ### Technology Stack
 - **Data Processing**: Polars for fast dataframe operations
 - **RAG Framework**: DSPy for retrieval-augmented generation pipelines
 - **ML/AI**: Instructor for structured LLM outputs, RAGAS for RAG evaluation
-- **Search**: BM25 for keyword search, Qdrant for vector search
+- **Search**: 
+  - BM25 for keyword search
+  - Qdrant for vector search (thenlper/gte-large embeddings, 1024-dim)
+  - Reciprocal Rank Fusion (RRF) for hybrid search
+  - Cross-encoder reranking (ms-marco-MiniLM-L-12-v2)
 - **Web API**: FastAPI for serving endpoints
 - **External Data**: Tavily for web search integration
 - **CLI**: Typer for command-line interface
 - **Package Manager**: uv for fast Python package management
+- **Infrastructure**: Docker Compose for Qdrant and Redis
 
 ## Development Notes
 
+### Requirements
 - Python 3.12+ required
-- Uses `uv` for fast Python package management
-- Uses `uv run` for executing python code and other apps
-- Uses `uv add` instead of `pip install`
-- Docker services must be running for vector search and caching functionality
-- Marimo notebooks combine code, visualizations, and markdown in executable Python files
-- Run marimo notebooks via `uv run marimo run`
-- Evaluation results include both JSON and Markdown reports with timestamped filenames
+- Docker and Docker Compose for infrastructure services
+- uv package manager for Python dependencies
+
+### Best Practices
+- **Package Management**: Always use `uv add` instead of `pip install`
+- **Code Execution**: Use `uv run` for all Python scripts and commands
+- **Docker Services**: Must be running for vector search and caching
+- **Marimo Notebooks**: Interactive Python files combining code, visualizations, and markdown
+- **Evaluation Reports**: Generated with timestamps (YYYYMMDD_HHMMSS) in both JSON and Markdown formats
+
+### Understanding RAG Metrics
+- **Context Utilization 9-27% is NORMAL** for e-commerce RAG systems
+- **Context Relevance 82-90% is GOOD** performance
+- Low utilization means comprehensive retrieval (feature, not bug)
+- See `docs/RAG_EVALUATION_INSIGHTS.md` for detailed explanation
 
 ## LLM Configuration
 
@@ -203,12 +222,42 @@ The project uses a centralized LLM configuration in `app/llm_config.py`:
   - `OPENAI_API_KEY`: Your OpenAI API key
   - `OPENAI_API_BASE`: Optional LiteLLM proxy URL
 
-## Important Reminders
+## Important Reminders for Claude Code
 
+### File Operations
 - Do what has been asked; nothing more, nothing less
-- NEVER create files unless they're absolutely necessary for achieving your goal
-- ALWAYS prefer editing an existing file to creating a new one
-- NEVER proactively create documentation files (*.md) or README files unless explicitly requested
-- NEVER update the git config
-- NEVER use git commands with the -i flag (interactive mode not supported)
-- When committing, always end commit messages with the Claude Code signature
+- NEVER create files unless absolutely necessary
+- ALWAYS prefer editing existing files over creating new ones
+- NEVER proactively create documentation files unless explicitly requested
+
+### Git Operations
+- NEVER update git config
+- NEVER use interactive git commands (-i flag)
+- When committing, always include Claude Code signature
+
+### Testing Commands
+When asked to test or verify changes:
+```bash
+# Test vector search
+uv run python test_vec_fix.py
+
+# Test cross-encoder
+uv run python test_new_reranker.py
+
+# Test evaluation reports
+uv run python test_enhanced_reports.py
+```
+
+### Common Evaluation Commands
+```bash
+# Full search evaluation
+uv run python -m app.cli eval-search \
+  --dataset eval/datasets/search_eval.jsonl \
+  --variants bm25,vec,rrf,rrf_ce \
+  --top-k 20 --max-samples 100
+
+# Quick chat evaluation
+uv run python -m app.cli eval-chat \
+  --dataset eval/datasets/chat_eval.jsonl \
+  --top-k 8 --max-samples 20
+```

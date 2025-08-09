@@ -200,12 +200,19 @@ ShoppingAssistant/
 - **Web API**: FastAPI
 - **Package Management**: uv (fast Python package manager)
 
+## Documentation
+
+- [CLI Reference](docs/CLI.md) - Complete command-line interface documentation
+- [RAG Evaluation Insights](docs/RAG_EVALUATION_INSIGHTS.md) - Understanding evaluation metrics and results
+- [Cross-Encoder Models Guide](docs/RERANKING_MODELS.md) - Choosing and configuring reranking models
+
 ## Known Issues & Fixes
 
 - **Vector Search ID Mapping**: Fixed - Qdrant UUIDs now properly map to original IDs
 - **RAGAS Score Extraction**: Fixed - Handles list-based score format
 - **LiteLLM Dependencies**: All required packages included (apscheduler, cryptography, python-multipart, email-validator)
 - **Timestamp Format**: Evaluation results use human-readable format (YYYYMMDD_HHMMSS)
+- **Low Context Utilization**: This is normal for RAG systems (see [documentation](docs/RAG_EVALUATION_INSIGHTS.md))
 
 ## License
 
