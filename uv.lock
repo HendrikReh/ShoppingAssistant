@@ -575,6 +575,17 @@ wheels = [
 ]
 
 [[package]]
+name = "dotenv"
+version = "0.9.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dotenv" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/b7/545d2c10c1fc15e48653c91efde329a790f2eecfbbf2bd16003b5db2bab0/dotenv-0.9.9-py2.py3-none-any.whl", hash = "sha256:29cf74a087b31dafdb5a446b6d7e11cbce8ed2741540e2339c69fbef92c94ce9", size = 1892, upload-time = "2025-02-19T22:15:01.647Z" },
+]
+
+[[package]]
 name = "dspy"
 version = "2.6.27"
 source = { registry = "https://pypi.org/simple" }
@@ -3214,6 +3225,7 @@ dependencies = [
     { name = "apscheduler" },
     { name = "black" },
     { name = "cryptography" },
+    { name = "dotenv" },
     { name = "dspy" },
     { name = "email-validator" },
     { name = "fastapi" },
@@ -3229,6 +3241,7 @@ dependencies = [
     { name = "plotly" },
     { name = "polars" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "qdrant-client" },
     { name = "ragas" },
@@ -3247,6 +3260,7 @@ requires-dist = [
     { name = "apscheduler", specifier = ">=3.11.0" },
     { name = "black", specifier = ">=25.1.0" },
     { name = "cryptography", specifier = ">=45.0.6" },
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "dspy", specifier = ">=2.6.27" },
     { name = "email-validator", specifier = ">=2.2.0" },
     { name = "fastapi", specifier = ">=0.116.1" },
@@ -3262,6 +3276,7 @@ requires-dist = [
     { name = "plotly", specifier = ">=5.24.1" },
     { name = "polars", specifier = ">=1.32.2" },
     { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "qdrant-client", specifier = ">=1.15.1" },
     { name = "ragas", specifier = ">=0.3.0" },

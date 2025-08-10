@@ -19,6 +19,11 @@ import os
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
 
 # Disable tokenizers parallelism to avoid forking warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -28,7 +33,6 @@ import logging
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("LiteLLM.Router").setLevel(logging.WARNING)
 logging.getLogger("LiteLLM Proxy").setLevel(logging.WARNING)
-from pathlib import Path
 from typing import Iterable, List, Tuple
 
 import typer

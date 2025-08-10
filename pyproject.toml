@@ -34,4 +34,6 @@ dependencies = [
     "python-multipart>=0.0.20",
     "email-validator>=2.2.0",
     "fastapi-sso>=0.18.0",
+    "python-dotenv>=1.1.1",
+    "dotenv>=0.9.9",
 ]

@@ -30,6 +30,10 @@ Shopping Assistant is an advanced e-commerce search and recommendation system th
 # Install dependencies using uv
 uv sync
 
+# Load environment variables (OpenAI API key, etc.)
+set -a
+source .env
+
 # Run Python commands
 uv run python main.py
 
