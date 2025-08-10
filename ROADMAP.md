@@ -188,3 +188,10 @@ Current RAG Implementation State
   - No product attribute extraction or structured search
 
   The system is well-architected for e-commerce search with strong retrieval capabilities, comprehensive evaluation, and production-ready infrastructure.
+
+
+  ======= EVAL TESTING =======
+  
+  uv run python -m app.cli eval-search --dataset eval/datasets/synthetic_large_500_20250810_084933.jsonl --enhanced --max-samples 2 --variants bm25,vec
+
+  uv run python -m app.cli eval-search --dataset eval/datasets/search_eval.jsonl --top-k 10 --rrf-k 60 --max-samples 12 --variants bm25,vec,rrf,rrf_ce

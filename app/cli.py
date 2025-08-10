@@ -790,6 +790,9 @@ def eval_search(
     # Use metrics that don't require reference answers
     from ragas.metrics import ContextRelevance, ContextUtilization
     
+    # Capture the full execution command
+    execution_command = " ".join(sys.argv)
+    
     # Configure LLM for RAGAS evaluation
     llm_config = get_llm_config()
     try:
@@ -1089,6 +1092,7 @@ def eval_search(
 
         # Capture all call parameters
         call_params = {
+            "execution_command": execution_command,
             "command": "eval-search",
             "timestamp": timestamp,
             "dataset": str(dataset),
@@ -1134,6 +1138,7 @@ def eval_search(
             rows_md.append(row)
         md_config = (
             f"### Call Parameters\n"
+            f"- **Execution Command**: `{execution_command}`\n"
             f"- **Command**: `eval-search`\n"
             f"- **Timestamp**: {timestamp}\n"
             f"- **Dataset**: `{dataset}`\n"
@@ -1192,6 +1197,9 @@ def eval_chat(
     from ragas import evaluate as ragas_evaluate
     from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
     import dspy
+
+    # Capture the full execution command
+    execution_command = " ".join(sys.argv)
 
     # Configure LLMs for both DSPy chat and RAGAS evaluation
     llm_config = get_llm_config()
@@ -1321,6 +1329,7 @@ def eval_chat(
 
         # Capture all call parameters
         call_params = {
+            "execution_command": execution_command,
             "command": "eval-chat",
             "timestamp": timestamp,
             "dataset": str(dataset),
@@ -1345,6 +1354,7 @@ def eval_chat(
 
         md_params = (
             f"### Call Parameters\n"
+            f"- **Execution Command**: `{execution_command}`\n"
             f"- **Command**: `eval-chat`\n"
             f"- **Timestamp**: {timestamp}\n"
             f"- **Dataset**: `{dataset}`\n"
