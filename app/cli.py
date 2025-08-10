@@ -776,6 +776,7 @@ def eval_search(
     variants: str = typer.Option("bm25,vec,rrf,rrf_ce"),
     max_samples: int = typer.Option(100),
     seed: int = typer.Option(42),
+    enhanced: bool = typer.Option(False, help="Use enhanced retrieval with query expansion"),
 ) -> None:
     """Evaluate retrieval variants; logs metrics and report to eval/results and MLflow."""
 
@@ -798,6 +799,10 @@ def eval_search(
     st_model = _load_st_model(EMBED_MODEL, device=device)
     client = _qdrant_client()
     bm25_prod, bm25_rev, id_to_product, id_to_review = _bm25_from_files(products_path, reviews_path)
+    
+    # Extract ID lists for BM25 scoring (needed for enhanced mode)
+    prod_ids = list(id_to_product.keys())
+    rev_ids = list(id_to_review.keys())
 
     queries = _load_jsonl(dataset, max_samples=max_samples, seed=seed)
     variant_list = [v.strip() for v in variants.split(",") if v.strip()]
@@ -815,8 +820,109 @@ def eval_search(
         _get_cross_encoder(CROSS_ENCODER_MODEL, device)
         typer.echo("✓ Cross-encoder model loaded and cached")
 
+    # Import enhanced retrieval if needed
+    if enhanced:
+        from app.search_improvements import ImprovedRetriever, QueryPreprocessor
+        improved_retriever = ImprovedRetriever(top_k=top_k, rrf_k=rrf_k)
+        query_preprocessor = QueryPreprocessor()
+    
     def run_variant(q: str, variant: str) -> list[dict]:
         """Return list of payload dicts for top_k contexts under a variant."""
+        # Use enhanced retrieval if enabled
+        if enhanced and variant in ["rrf", "rrf_ce"]:
+            # Process query for better results
+            enhanced_query = query_preprocessor.process(q)
+            
+            # Define BM25 and vector functions for improved retriever
+            def bm25_func(keywords):
+                # Use keywords for BM25
+                query_text = " ".join(keywords) if keywords else q.lower()
+                q_tokens = _tokenize(query_text)
+                
+                prod_scores = []
+                for i, score in enumerate(bm25_prod.get_scores(q_tokens)):
+                    if score > 0:
+                        prod_scores.append((prod_ids[i], score))
+                
+                rev_scores = []
+                for i, score in enumerate(bm25_rev.get_scores(q_tokens)):
+                    if score > 0:
+                        rev_scores.append((rev_ids[i], score))
+                
+                # Combine and sort
+                all_scores = prod_scores + rev_scores
+                return sorted(all_scores, key=lambda x: x[1], reverse=True)[:top_k*2]
+            
+            def vector_func(query_text):
+                # Use expanded query for vectors
+                query_vec = st_model.encode([query_text], convert_to_tensor=True, device=device)[0]
+                
+                # Search products
+                prod_results = client.search(
+                    collection_name="products_gte_large",
+                    query_vector=query_vec.cpu().numpy().tolist(),
+                    limit=top_k,
+                    with_payload=True
+                )
+                
+                # Search reviews
+                rev_results = client.search(
+                    collection_name="reviews_gte_large",
+                    query_vector=query_vec.cpu().numpy().tolist(),
+                    limit=top_k,
+                    with_payload=True
+                )
+                
+                # Combine results
+                all_scores = []
+                for hit in prod_results:
+                    original_id = hit.payload.get('original_id', hit.payload.get('id', ''))
+                    if original_id:
+                        all_scores.append((original_id, hit.score))
+                
+                for hit in rev_results:
+                    original_id = hit.payload.get('original_id', hit.payload.get('id', ''))
+                    if original_id:
+                        all_scores.append((original_id, hit.score))
+                
+                return all_scores
+            
+            # Get improved results
+            improved_results = improved_retriever.retrieve_with_fallback(
+                q,
+                bm25_func,
+                vector_func,
+                {**id_to_product, **id_to_review}
+            )
+            
+            # Apply cross-encoder if needed
+            if variant == "rrf_ce" and improved_results:
+                k_ce = min(rerank_top_k, len(improved_results))
+                candidates: list[tuple[str, str]] = []
+                for doc_id, _ in improved_results[:k_ce]:
+                    if doc_id.startswith("prod::") and doc_id in id_to_product:
+                        p = id_to_product[doc_id]
+                        candidates.append((doc_id, f"{p.get('title','')}\n{p.get('description','')}"))
+                    elif doc_id.startswith("rev::") and doc_id in id_to_review:
+                        r = id_to_review[doc_id]
+                        candidates.append((doc_id, f"{r.get('title','')}\n{r.get('text','')}"))
+                
+                if candidates:
+                    ranked = _cross_encoder_scores(CROSS_ENCODER_MODEL, device, q, candidates)
+                    ce_scores = {cid: score for cid, score in ranked}
+                    improved_results = sorted(improved_results, key=lambda x: (ce_scores.get(x[0], float("-inf")), x[1]), reverse=True)
+            
+            # Convert to payloads
+            payloads: list[dict] = []
+            for doc_id, _ in improved_results[:top_k]:
+                if doc_id.startswith("prod::") and doc_id in id_to_product:
+                    payloads.append(id_to_product[doc_id])
+                elif doc_id.startswith("rev::") and doc_id in id_to_review:
+                    payloads.append(id_to_review[doc_id])
+            
+            return payloads
+        
+        # Original variant logic for non-enhanced or non-RRF variants
         q_tokens = _tokenize(q)
         prod_ranked = []
         rev_ranked = []
@@ -889,12 +995,29 @@ def eval_search(
     out_json = results_dir / f"search_{timestamp}.json"
     out_md = results_dir / f"search_{timestamp}.md"
 
+    # Adjust parameters if using enhanced mode
+    if enhanced:
+        from app.search_improvements import IMPROVED_SEARCH_CONFIG
+        # Override with improved parameters
+        if top_k == 20:  # Use default improved value only if not explicitly set
+            top_k = IMPROVED_SEARCH_CONFIG["top_k"]
+        if rrf_k == 60:  # Use default improved value only if not explicitly set
+            rrf_k = IMPROVED_SEARCH_CONFIG["rrf_k"]
+        if rerank_top_k == 30:  # Use default improved value only if not explicitly set
+            rerank_top_k = IMPROVED_SEARCH_CONFIG["rerank_top_k"]
+        
+        typer.echo(f"🚀 Enhanced mode enabled with optimized parameters:")
+        typer.echo(f"   top_k={top_k}, rrf_k={rrf_k}, rerank_top_k={rerank_top_k}")
+        typer.echo(f"   Query expansion: enabled")
+        typer.echo(f"   Fallback strategies: enabled")
+    
     with mlflow.start_run(run_name=f"eval-search-{timestamp}"):
         mlflow.log_param("variants", ",".join(variant_list))
         mlflow.log_param("top_k", top_k)
         mlflow.log_param("rrf_k", rrf_k)
         mlflow.log_param("rerank_top_k", rerank_top_k)
         mlflow.log_param("max_samples", max_samples)
+        mlflow.log_param("enhanced", enhanced)
 
         variant_to_rows: dict[str, list[dict]] = {v: [] for v in variant_list}
         typer.echo("Collecting contexts per variant...")
@@ -1015,6 +1138,7 @@ def eval_search(
             f"- **Samples**: requested={max_samples}, loaded={len(queries)}\n"
             f"- **Variants**: {', '.join(variant_list)}\n"
             f"- **Search params**: top_k={top_k}, rrf_k={rrf_k}, rerank_top_k={rerank_top_k}\n"
+            f"- **Enhanced mode**: {'✅ Enabled (query expansion + fallback)' if enhanced else '❌ Disabled'}\n"
             f"- **Seed**: {seed}\n"
             f"- **Device**: {device}\n"
             f"- **Embed model**: `{EMBED_MODEL}`\n"
