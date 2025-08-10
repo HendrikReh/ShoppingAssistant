@@ -17,7 +17,7 @@ Shopping Assistant is an advanced e-commerce search and recommendation system th
 - Hybrid search (BM25 + semantic vectors) with Reciprocal Rank Fusion
 - Cross-encoder reranking for improved relevance (ms-marco-MiniLM-L-12-v2)
 - Retrieval Augmented Generation (RAG) using DSPy framework
-- Vector search with Qdrant (1024-dim gte-large embeddings)
+- Vector search with Qdrant (384-dim all-MiniLM-L6-v2 embeddings)
 - Redis caching layer with 2GB limit and LRU eviction
 - Interactive data analysis with Marimo notebooks
 - Comprehensive evaluation with RAGAS metrics
@@ -155,6 +155,22 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 - **Qdrant** (port 6333): Vector database for semantic search and product embeddings
 - **Redis** (port 6379): Caching layer with 2GB memory limit and LRU eviction
 
+### Model Choices & Performance
+
+#### Embedding Model: `sentence-transformers/all-MiniLM-L6-v2`
+- **Dimensions**: 384 (efficient, fast)
+- **Why chosen**: GTE-large compressed all products to 0.7-0.8 similarity range
+- **Performance**: Vector search relevance improved from 2.5% to 70%
+- **Collections**: `products_minilm`, `reviews_minilm`
+
+#### Cross-Encoder: `cross-encoder/ms-marco-MiniLM-L-12-v2`
+- **Speed**: 221 docs/sec on MPS, 136ms latency for 30 docs
+- **Accuracy**: Excellent ranking quality with clear score discrimination
+- **Size**: 475MB model, 125M parameters
+- **Alternative for speed**: `ms-marco-MiniLM-L-6-v2` (2x faster, -3% accuracy)
+- **Benchmarked against**: BGE-reranker, ELECTRA, TinyBERT, MxBai
+- **See**: `docs/CROSS_ENCODER_COMPARISON.md` for detailed benchmarks
+
 ### Key Components
 - **app/cli.py**: Typer-based CLI with commands for ingestion, search, chat, and evaluation
 - **app/llm_config.py**: Centralized LLM configuration supporting OpenAI and LiteLLM proxy
@@ -164,6 +180,28 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 - **main.py**: Entry point for the application (to be expanded)
 
 ### Recent Changes
+
+#### Session 2025-08-10 Updates (Part 3)
+
+**Enhanced Evaluation Reporting:**
+- **Query-level details**: Each evaluation now captures request, response, and metrics per query
+- **Individual results**: JSON reports include `detailed_results` with retrieved items
+- **Sample queries**: Markdown reports show top 3 example queries with their results
+- **Benefits**: Easier debugging, pattern identification, manual inspection
+- **See**: `docs/ENHANCED_EVALUATION_GUIDE.md` for usage
+
+**Cross-Encoder Benchmarking:**
+- **Tested 5 models**: MiniLM-L-12, MiniLM-L-6, BGE-reranker, ELECTRA, TinyBERT
+- **Winner**: Current ms-marco-MiniLM-L-12-v2 provides best balance
+- **Performance**: 221 docs/sec with excellent ranking quality
+- **Documentation**: Added `docs/CROSS_ENCODER_COMPARISON.md`
+- **Benchmark tool**: `test_rerankers.py` for testing on your data
+
+**Sample Size Guidelines:**
+- **Created comprehensive guide**: `docs/EVALUATION_SAMPLE_SIZE_GUIDE.md`
+- **Sweet spot**: 100 samples ($0.05, 5 minutes, ±10% confidence)
+- **Progressive testing**: Start with 20, scale to 100, then 500 for production
+- **Cost analysis**: Detailed API costs and runtime for each sample size
 
 #### Session 2025-08-10 Updates (Part 2)
 

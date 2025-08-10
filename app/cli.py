@@ -1031,6 +1031,9 @@ def eval_search(
         mlflow.log_param("enhanced", enhanced)
 
         variant_to_rows: dict[str, list[dict]] = {v: [] for v in variant_list}
+        # NEW: Store detailed results for each query
+        detailed_results: dict[str, list[dict]] = {v: [] for v in variant_list}
+        
         typer.echo("Collecting contexts per variant...")
         variant_counts: dict[str, int] = {v: 0 for v in variant_list}
         start_collect = time.time()
@@ -1042,6 +1045,25 @@ def eval_search(
                 payloads = run_variant(q, variant)
                 contexts = [_to_context_text(p) for p in payloads[:top_k]]
                 variant_to_rows[variant].append({"question": q, "contexts": contexts, "answer": ""})
+                
+                # NEW: Store detailed info for this query
+                detailed_info = {
+                    "query": q,
+                    "retrieved_items": [
+                        {
+                            "rank": i + 1,
+                            "type": "product" if p.get("title") else "review",
+                            "title": p.get("title", "N/A"),
+                            "category": p.get("category_name", p.get("main_category", "N/A")),
+                            "rating": p.get("rating", p.get("average_rating", "N/A")),
+                            "snippet": _to_context_text(p)[:200] + "..." if len(_to_context_text(p)) > 200 else _to_context_text(p)
+                        }
+                        for i, p in enumerate(payloads[:top_k])
+                    ],
+                    "num_retrieved": len(payloads)
+                }
+                detailed_results[variant].append(detailed_info)
+                
                 variant_counts[variant] += 1
             if idx % 10 == 0:
                 elapsed = time.time() - start_collect
@@ -1052,6 +1074,9 @@ def eval_search(
 
         # Evaluate with RAGAS metric that works without references
         aggregates: dict[str, dict[str, float]] = {}
+        # NEW: Store per-query metrics
+        per_query_metrics: dict[str, list[dict]] = {v: [] for v in variant_list}
+        
         for variant, rows in variant_to_rows.items():
             if not rows:
                 aggregates[variant] = {}
@@ -1065,6 +1090,18 @@ def eval_search(
                 # Try to aggregate robustly across ragas versions
                 try:
                     df = res.to_pandas()  # type: ignore[attr-defined]
+                    
+                    # NEW: Extract per-query metrics
+                    for i, row_dict in df.iterrows():
+                        query_metrics = {}
+                        for col in df.columns:
+                            if col not in {"question", "answer", "contexts", "ground_truth"}:
+                                try:
+                                    query_metrics[col] = float(row_dict[col])
+                                except:
+                                    query_metrics[col] = None
+                        per_query_metrics[variant].append(query_metrics)
+                    
                     for col in df.columns:
                         if col in {"question", "answer", "contexts", "ground_truth"}:
                             continue
@@ -1116,6 +1153,19 @@ def eval_search(
             "cross_encoder_model": CROSS_ENCODER_MODEL,
         }
         
+        # NEW: Combine detailed results with metrics
+        detailed_results_with_metrics = {}
+        for variant in variant_list:
+            variant_details = []
+            for i, detail in enumerate(detailed_results[variant]):
+                combined = detail.copy()
+                if i < len(per_query_metrics[variant]):
+                    combined["metrics"] = per_query_metrics[variant][i]
+                else:
+                    combined["metrics"] = {}
+                variant_details.append(combined)
+            detailed_results_with_metrics[variant] = variant_details
+        
         report = {
             "call_parameters": call_params,
             "config": {
@@ -1129,6 +1179,7 @@ def eval_search(
                 "embed_model": EMBED_MODEL,
             },
             "aggregates": aggregates,
+            "detailed_results": detailed_results_with_metrics  # NEW: Add detailed results
         }
         _save_json(out_json, report)
         mlflow.log_artifact(str(out_json))
@@ -1172,11 +1223,43 @@ def eval_search(
         
         interpretation = generate_search_interpretation(aggregates, interpretation_config)
         
+        # NEW: Add sample queries section to markdown
+        sample_queries_md = "\n## Sample Query Results\n\n"
+        
+        # Show first 3 queries for each variant as examples
+        num_examples = min(3, len(queries))
+        for variant in variant_list:
+            sample_queries_md += f"\n### {variant.upper()} Variant\n\n"
+            
+            for i in range(num_examples):
+                if i >= len(detailed_results_with_metrics[variant]):
+                    break
+                    
+                result = detailed_results_with_metrics[variant][i]
+                query_metrics = result.get("metrics", {})
+                
+                sample_queries_md += f"**Query {i+1}:** {result['query']}\n\n"
+                
+                # Show metrics for this query
+                if query_metrics:
+                    metrics_str = ", ".join([f"{k}: {v:.3f}" for k, v in query_metrics.items() if v is not None])
+                    sample_queries_md += f"*Metrics:* {metrics_str}\n\n"
+                
+                # Show top 3 retrieved items
+                sample_queries_md += "*Top Retrieved Items:*\n"
+                for item in result['retrieved_items'][:3]:
+                    sample_queries_md += f"- **#{item['rank']}** [{item['type'].upper()}] {item['title']} (Rating: {item['rating']})\n"
+                    sample_queries_md += f"  - Category: {item['category']}\n"
+                    sample_queries_md += f"  - Snippet: {item['snippet']}\n"
+                
+                sample_queries_md += "\n"
+        
         md = (
             "# Search Evaluation Report\n\n" + 
             md_config + 
             "\n## Metrics\n" + 
             _write_markdown_table(headers, rows_md) + 
+            sample_queries_md +  # NEW: Add sample queries
             "\n\n---\n\n" +
             interpretation
         )
