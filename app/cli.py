@@ -15,9 +15,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import time
 from datetime import datetime
+
+# Disable tokenizers parallelism to avoid forking warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Suppress LiteLLM verbose logging
+import logging
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+logging.getLogger("LiteLLM.Router").setLevel(logging.WARNING)
+logging.getLogger("LiteLLM Proxy").setLevel(logging.WARNING)
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
@@ -332,24 +342,32 @@ def _rrf_fuse(result_lists: list[list[tuple[str, float]]], k: int = 60) -> dict[
 
 
 def _vector_search(client, collection: str, vector: list[float], top_k: int = 20) -> list[tuple[str, float, dict]]:
-    # Prefer legacy search for broader client compatibility
+    # Use query_points to avoid deprecation warning
+    from qdrant_client.models import NamedVector
+    
     try:
-        hits = client.search(
-            collection_name=collection,
-            query_vector=vector,
-            with_payload=True,
-            limit=top_k,
-        )
-        return [(str(h.id), float(h.score), h.payload) for h in hits]
-    except Exception:
+        # Try the newer query_points API first
         res = client.query_points(
             collection_name=collection,
-            query_vector=vector,  # type: ignore[arg-type]
+            query=vector,  # Use query instead of query_vector
             with_payload=True,
             limit=top_k,
         )
         points = getattr(res, "points", res)
         return [(str(p.id), float(p.score), p.payload) for p in points]
+    except Exception:
+        # Fallback to search if query_points doesn't work
+        try:
+            hits = client.search(
+                collection_name=collection,
+                query_vector=vector,
+                with_payload=True,
+                limit=top_k,
+            )
+            return [(str(h.id), float(h.score), h.payload) for h in hits]
+        except Exception as e:
+            # Last resort - return empty list
+            return []
 
 
 def _cross_encoder_scores(model_name: str, device: str, query: str, candidates: list[tuple[str, str]]) -> list[tuple[str, float]]:
@@ -491,9 +509,9 @@ def search(
         # Interactive mode
         typer.secho("\n🔍 Interactive Search Mode", fg=typer.colors.CYAN, bold=True)
         typer.secho("Type your queries below. Commands:", fg=typer.colors.WHITE)
-        typer.secho("  'help' - Show search tips", fg=typer.colors.WHITE)
-        typer.secho("  'settings' - Show current settings", fg=typer.colors.WHITE)
-        typer.secho("  'exit' or 'quit' - Exit interactive mode", fg=typer.colors.WHITE)
+        typer.secho("  /help - Show search tips", fg=typer.colors.WHITE)
+        typer.secho("  /settings - Show current settings", fg=typer.colors.WHITE)
+        typer.secho("  /exit - Exit interactive mode", fg=typer.colors.WHITE)
         typer.secho("  Press Ctrl+C to interrupt\n", fg=typer.colors.WHITE)
         
         while True:
@@ -507,17 +525,17 @@ def search(
             if not user_query:
                 continue
                 
-            if user_query.lower() in {"exit", "quit"}:
+            if user_query.lower() in {"/exit", "/quit"}:
                 typer.secho("👋 Goodbye!", fg=typer.colors.CYAN)
                 break
-            elif user_query.lower() == "help":
+            elif user_query.lower() == "/help":
                 typer.secho("\n📚 Search Tips:", fg=typer.colors.CYAN, bold=True)
                 typer.secho("  • Use specific product names for best results", fg=typer.colors.WHITE)
                 typer.secho("  • Include key features: 'wireless earbuds noise cancelling'", fg=typer.colors.WHITE)
                 typer.secho("  • Price queries work: 'budget laptop under $500'", fg=typer.colors.WHITE)
                 typer.secho("  • Brand searches: 'Apple headphones'", fg=typer.colors.WHITE)
                 typer.secho("  • Comparative: 'best gaming mouse 2023'\n", fg=typer.colors.WHITE)
-            elif user_query.lower() == "settings":
+            elif user_query.lower() == "/settings":
                 typer.secho("\n⚙️  Current Settings:", fg=typer.colors.CYAN, bold=True)
                 typer.secho(f"  Top-K per modality: {top_k}", fg=typer.colors.WHITE)
                 typer.secho(f"  RRF fusion parameter: {rrf_k}", fg=typer.colors.WHITE)
@@ -620,10 +638,10 @@ def chat(
     typer.secho("\n💬 Interactive Chat Mode", fg=typer.colors.CYAN, bold=True)
     typer.secho("I can help you find products, compare items, and answer questions.", fg=typer.colors.WHITE)
     typer.secho("\nCommands:", fg=typer.colors.WHITE)
-    typer.secho("  'help' - Show example questions", fg=typer.colors.WHITE)
-    typer.secho("  'context' - Show how many contexts are being retrieved", fg=typer.colors.WHITE)
-    typer.secho("  'clear' - Clear the screen", fg=typer.colors.WHITE)
-    typer.secho("  'exit' or 'quit' - Exit chat mode", fg=typer.colors.WHITE)
+    typer.secho("  /help - Show example questions", fg=typer.colors.WHITE)
+    typer.secho("  /context - Show how many contexts are being retrieved", fg=typer.colors.WHITE)
+    typer.secho("  /clear - Clear the screen", fg=typer.colors.WHITE)
+    typer.secho("  /exit - Exit chat mode", fg=typer.colors.WHITE)
     typer.secho("  Press Ctrl+C to interrupt\n", fg=typer.colors.WHITE)
     
     # Keep track of conversation history for context
@@ -640,10 +658,10 @@ def chat(
         if not q:
             continue
             
-        if q.lower() in {"exit", "quit"}:
+        if q.lower() in {"/exit", "/quit"}:
             typer.secho("👋 Goodbye!", fg=typer.colors.CYAN)
             break
-        elif q.lower() == "help":
+        elif q.lower() == "/help":
             typer.secho("\n💡 Example Questions:", fg=typer.colors.CYAN, bold=True)
             typer.secho("  • What are the best wireless earbuds under $200?", fg=typer.colors.WHITE)
             typer.secho("  • Compare Sony WH-1000XM4 and Bose QuietComfort", fg=typer.colors.WHITE)
@@ -652,12 +670,12 @@ def chat(
             typer.secho("  • Find me a gaming mouse with RGB lighting", fg=typer.colors.WHITE)
             typer.secho("  • What are the pros and cons of mechanical keyboards?\n", fg=typer.colors.WHITE)
             continue
-        elif q.lower() == "context":
+        elif q.lower() == "/context":
             typer.secho(f"\n📚 Context Settings:", fg=typer.colors.CYAN, bold=True)
             typer.secho(f"  Retrieving top {top_k} contexts per query", fg=typer.colors.WHITE)
             typer.secho(f"  Sources: Products + Customer Reviews\n", fg=typer.colors.WHITE)
             continue
-        elif q.lower() == "clear":
+        elif q.lower() == "/clear":
             import os
             os.system('clear' if os.name == 'posix' else 'cls')
             typer.secho("💬 Interactive Chat Mode", fg=typer.colors.CYAN, bold=True)

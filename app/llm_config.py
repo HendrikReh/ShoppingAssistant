@@ -42,11 +42,8 @@ class LLMConfig:
                 "No API key configured. Set OPENAI_API_KEY environment variable or pass api_key to LLMConfig"
             )
         
-        # Check if we're using OpenAI directly or a proxy
-        if self.api_base:
-            print(f"Using LLM proxy at: {self.api_base}")
-        else:
-            print("Using OpenAI API directly")
+        # Silently check API configuration
+        pass
     
     def get_dspy_lm(self, task: str = "chat"):
         """Get configured DSPy LM instance for a specific task."""
