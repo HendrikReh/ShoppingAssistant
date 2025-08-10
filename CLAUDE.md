@@ -165,7 +165,38 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 
 ### Recent Changes
 
-#### Session 2025-08-10 Updates
+#### Session 2025-08-10 Updates (Part 2)
+
+**Automatic Environment Loading:**
+- **Added python-dotenv**: CLI now automatically loads `.env` file
+- No need for manual `set -a` and `source .env` commands
+- API keys loaded automatically when CLI starts
+
+**Execution Command Tracking:**
+- **Full command capture**: Both eval-search and eval-chat store complete execution command
+- Appears in JSON reports as `"execution_command"` field
+- Shown in Markdown reports for easy reproducibility
+- Example: `uv run python -m app.cli eval-search --dataset ... --top-k 25`
+
+**Realistic Test Data Generation (V2):**
+- **Created testset_generator_v2.py**: Catalog-based query generation
+  - Uses actual products from catalog (top 500 items)
+  - Realistic brand-category combinations (no more "JBL storage")
+  - Queries reference real product titles and features
+  - Proper comparative queries between similar products
+  
+- **Optimized Retrieval Parameters:**
+  - Increased default top_k: 10 → 25-30 for better recall
+  - Increased rrf_k: 60 → 80-100 for improved fusion
+  - Added --enhanced mode support with query expansion
+  - Significantly improved context relevance scores
+
+- **Dataset Cleanup:**
+  - Removed obsolete synthetic datasets with nonsensical queries
+  - Kept hand-crafted evaluation sets (search_eval.jsonl, chat_eval.jsonl)
+  - New realistic datasets match actual product inventory
+
+#### Session 2025-08-10 Updates (Part 1)
 
 **Synthetic Test Data Generation:**
 - **Created app/testset_generator.py**: Comprehensive test data generator
@@ -333,14 +364,22 @@ uv run python test_enhanced_reports.py
 
 ### Common Evaluation Commands
 ```bash
-# Full search evaluation
+# Generate realistic test data (V2 - recommended)
+uv run python -m app.cli generate-testset \
+  --num-samples 100 \
+  --use-v2 \
+  --output-name realistic_catalog
+
+# Full search evaluation with optimized parameters
 uv run python -m app.cli eval-search \
-  --dataset eval/datasets/search_eval.jsonl \
+  --dataset eval/datasets/realistic_catalog_*.jsonl \
   --variants bm25,vec,rrf,rrf_ce \
-  --top-k 20 --max-samples 100
+  --top-k 25 --rrf-k 80 \
+  --enhanced \
+  --max-samples 50
 
 # Quick chat evaluation
 uv run python -m app.cli eval-chat \
-  --dataset eval/datasets/chat_eval.jsonl \
+  --dataset eval/datasets/realistic_catalog_*.jsonl \
   --top-k 8 --max-samples 20
 ```

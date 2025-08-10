@@ -21,7 +21,7 @@ uv run python -m app.cli [COMMAND] --help
 | `search` | Search products using various strategies | Find products and reviews |
 | `chat` | Interactive Q&A with RAG | Get recommendations and answers |
 | `interactive` | Combined search and chat mode | Full shopping assistant experience |
-| `generate-testset` | Generate synthetic test datasets | Create diverse evaluation data |
+| `generate-testset` | Generate realistic test datasets (V2) | Create catalog-based evaluation data |
 | `eval-search` | Evaluate search quality with metrics | Performance benchmarking |
 | `eval-chat` | Evaluate chat responses with RAGAS | Response quality assessment |
 
@@ -153,10 +153,10 @@ uv run python -m app.cli search \
 
 In interactive search mode:
 - **Continuous searching**: Keep searching without reloading data
-- **Built-in commands**:
-  - `help` - Show search tips and examples
-  - `settings` - Display current search configuration
-  - `exit` or `quit` - Leave interactive mode
+- **Built-in commands** (slash commands):
+  - `/help` - Show search tips and examples
+  - `/settings` - Display current search configuration
+  - `/exit` or `/quit` - Leave interactive mode
 - **Color-coded results**: Green for high relevance, yellow for medium, white for low
 - **Persistent session**: Data loaded once for faster subsequent searches
 
@@ -229,11 +229,11 @@ uv run python -m app.cli chat \
 
 In interactive chat mode:
 - **Natural conversation**: Ask follow-up questions
-- **Built-in commands**:
-  - `help` - Show example questions
-  - `context` - Display context retrieval settings
-  - `clear` - Clear the screen
-  - `exit` or `quit` - Leave chat mode
+- **Built-in commands** (slash commands):
+  - `/help` - Show example questions
+  - `/context` - Display context retrieval settings
+  - `/clear` - Clear the screen
+  - `/exit` or `/quit` - Leave chat mode
 - **Visual feedback**: Thinking indicator while processing
 - **Formatted responses**: Auto-wrapped text for readability
 - **Conversation history**: Maintained during session
@@ -345,9 +345,10 @@ uv run python -m app.cli eval-search [OPTIONS]
 #### Example Usage
 
 ```bash
-# Evaluate all variants
+# Evaluate all variants with optimized parameters
 uv run python -m app.cli eval-search \
-  --dataset eval/datasets/search_eval.jsonl
+  --dataset eval/datasets/realistic_catalog_100_*.jsonl \
+  --top-k 25 --rrf-k 80 --enhanced
 
 # Test specific variants
 uv run python -m app.cli eval-search \
@@ -360,12 +361,14 @@ uv run python -m app.cli eval-search \
   --max-samples 10 \
   --variants "bm25,vec"
 
-# Production evaluation
+# Production evaluation with enhanced mode
 uv run python -m app.cli eval-search \
-  --dataset eval/datasets/search_eval.jsonl \
+  --dataset eval/datasets/realistic_catalog_*.jsonl \
   --top-k 30 \
-  --rerank-top-k 50 \
-  --max-samples 100
+  --rrf-k 100 \
+  --rerank-top-k 40 \
+  --max-samples 100 \
+  --enhanced
 ```
 
 #### Output Files
@@ -375,9 +378,9 @@ uv run python -m app.cli eval-search \
 
 ---
 
-### 6. `generate-testset` - Synthetic Test Data Generation
+### 6. `generate-testset` - Realistic Test Data Generation
 
-Generate diverse test datasets for comprehensive evaluation.
+Generate realistic test datasets based on actual product catalog for comprehensive evaluation.
 
 ```bash
 uv run python -m app.cli generate-testset [OPTIONS]
@@ -385,7 +388,8 @@ uv run python -m app.cli generate-testset [OPTIONS]
 
 **Options:**
 - `--num-samples INTEGER` (default: 500) - Number of test samples to generate
-- `--output-name TEXT` (default: "synthetic") - Output filename prefix
+- `--output-name TEXT` (default: "realistic") - Output filename prefix
+- `--use-v2` (default: True) - Use V2 generator for catalog-based queries
 - `--include-reference` (default: True) - Include reference answers
 - `--distribution-preset TEXT` (default: "balanced") - Query distribution:
   - `balanced` - Equal distribution across all query types
@@ -395,6 +399,13 @@ uv run python -m app.cli generate-testset [OPTIONS]
 - `--seed INTEGER` (default: 42) - Random seed for reproducibility
 - `--products-path PATH` - Path to products JSONL
 - `--reviews-path PATH` - Path to reviews JSONL
+
+**V2 Generator Features (Recommended):**
+- Uses actual product titles, brands, and categories from catalog
+- Generates realistic brand-category combinations
+- Creates comparative queries between similar products
+- References real product features and specifications
+- No nonsensical queries like "JBL storage" or "Samsung mouse"
 
 **Query Types:**
 - **single_hop_factual** - Simple lookups
@@ -407,19 +418,29 @@ uv run python -m app.cli generate-testset [OPTIONS]
 
 **Examples:**
 ```bash
-# Generate 500 diverse test samples
-uv run python -m app.cli generate-testset --num-samples 500
+# Generate realistic test samples (V2 - recommended)
+uv run python -m app.cli generate-testset \
+    --num-samples 100 \
+    --use-v2 \
+    --output-name realistic_catalog
 
 # Generate simple queries for quick testing
 uv run python -m app.cli generate-testset \
     --num-samples 100 \
-    --distribution-preset simple
+    --distribution-preset simple \
+    --use-v2
 
 # Generate complex queries for stress testing
 uv run python -m app.cli generate-testset \
     --num-samples 200 \
     --distribution-preset complex \
-    --output-name stress_test
+    --output-name stress_test \
+    --use-v2
+
+# Use original generator (not recommended - may generate nonsensical queries)
+uv run python -m app.cli generate-testset \
+    --num-samples 100 \
+    --use-v2 false
 ```
 
 ---

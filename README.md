@@ -64,16 +64,15 @@ uv run python -m app.cli chat      # Interactive chat
 
 ### Configuration
 
-1. Set up your OpenAI API key:
+1. Set up your environment variables:
+
+Create a `.env` file with your API keys:
 ```bash
-export OPENAI_API_KEY="your-api-key"
+OPENAI_API_KEY='your-api-key'
+TAVILY_API_KEY='your-tavily-key'  # Optional: for web search
 ```
 
-Or use LiteLLM proxy:
-```bash
-export OPENAI_API_BASE="http://localhost:4000/v1"
-export OPENAI_API_KEY="your-proxy-key"
-```
+The CLI automatically loads `.env` files using python-dotenv.
 
 2. Ingest data into vector database:
 ```bash
@@ -112,34 +111,40 @@ uv run python -m app.cli chat \
 ```
 
 ### Interactive Features
-- **Built-in Commands**: `help`, `settings`, `context`, `clear`, `exit`
+- **Built-in Commands**: `/help`, `/settings`, `/context`, `/clear`, `/exit`
 - **Color-Coded Results**: Green (high relevance), Yellow (medium), White (low)
 - **Persistent Sessions**: Data loaded once for faster responses
 - **Visual Feedback**: Thinking indicators, progress bars, formatted outputs
+- **Execution Tracking**: All evaluation reports include the exact command used for reproducibility
 
 ### Evaluation
 
-#### Generate Synthetic Test Data (NEW!)
+#### Generate Realistic Test Data (V2 - Catalog-Based)
 ```bash
-# Generate 500 diverse test samples
-uv run python -m app.cli generate-testset --num-samples 500
+# Generate realistic test samples based on actual product catalog
+uv run python -m app.cli generate-testset \
+  --num-samples 100 \
+  --use-v2  # Uses actual products from catalog
 
 # Generate with different complexity distributions
 uv run python -m app.cli generate-testset \
   --num-samples 200 \
-  --distribution-preset complex  # Focus on multi-hop reasoning
+  --distribution-preset complex \
+  --use-v2
 ```
 
-#### Run Evaluations
+#### Run Evaluations with Optimized Parameters
 ```bash
-# Evaluate search quality with synthetic data
+# Evaluate search with optimized retrieval window
 uv run python -m app.cli eval-search \
-  --dataset eval/datasets/synthetic_500_*.jsonl \
-  --top-k 20 --variants bm25,vec,rrf,rrf_ce
+  --dataset eval/datasets/realistic_catalog_*.jsonl \
+  --top-k 25 --rrf-k 80 --rerank-top-k 35 \
+  --variants bm25,vec,rrf,rrf_ce \
+  --enhanced  # Enable query expansion
 
 # Evaluate chat quality
 uv run python -m app.cli eval-chat \
-  --dataset eval/datasets/synthetic_500_*.jsonl \
+  --dataset eval/datasets/realistic_catalog_*.jsonl \
   --top-k 8 --max-samples 50
 ```
 
@@ -208,22 +213,27 @@ uv run python test_ragas_fix.py
 ```
 ShoppingAssistant/
 ├── app/
-│   ├── cli.py         # Typer CLI implementation
-│   └── llm_config.py  # Centralized LLM configuration
-├── notebooks/         # Interactive Marimo notebooks
+│   ├── cli.py                  # Typer CLI implementation  
+│   ├── llm_config.py           # Centralized LLM configuration
+│   ├── eval_interpreter.py     # Evaluation metrics interpretation
+│   ├── testset_generator.py    # Original test data generator
+│   └── testset_generator_v2.py # Realistic catalog-based generator
+├── notebooks/                  # Interactive Marimo notebooks
 │   ├── ecommerce_analysis.py
 │   ├── ingest_embeddings.py
 │   └── retrieval_fusion.py
-├── data/             # Dataset files (JSONL format)
+├── data/                       # Dataset files (JSONL format)
 │   ├── top_1000_products.jsonl
 │   └── 100_top_reviews_of_the_top_1000_products.jsonl
 ├── eval/
-│   ├── datasets/     # Evaluation datasets
-│   │   ├── search_eval.jsonl
-│   │   └── chat_eval.jsonl
-│   └── results/      # Evaluation results
-├── docs/             # Documentation
+│   ├── datasets/               # Evaluation datasets
+│   │   ├── search_eval.jsonl   # Hand-crafted search queries
+│   │   ├── chat_eval.jsonl     # Hand-crafted Q&A pairs
+│   │   └── realistic_*.jsonl   # Generated from actual catalog
+│   └── results/                # Evaluation results with timestamps
+├── docs/                       # Documentation
 ├── docker-compose.yml
+├── .env                        # Environment variables (API keys)
 └── pyproject.toml
 ```
 

@@ -1,5 +1,5 @@
 {
-  "total_samples": 100,
+  "total_samples": 20,
   "generation_seed": 42,
   "distribution_preset": "balanced",
   "distribution": {
@@ -12,19 +12,18 @@
     "problem_solving": 0.05
   },
   "complexity_distribution": {
-    "simple": 27,
-    "moderate": 48,
-    "complex": 25
+    "simple": 7,
+    "moderate": 9,
+    "complex": 4
   },
   "query_type_distribution": {
-    "single_hop_factual": 14,
-    "recommendation": 14,
-    "technical": 14,
-    "multi_hop_reasoning": 14,
-    "comparative": 16,
-    "abstract_interpretive": 14,
-    "problem_solving": 14
+    "comparative": 3,
+    "single_hop": 3,
+    "technical": 3,
+    "problem_solving": 3,
+    "multi_hop": 4,
+    "recommendation": 4
   },
-  "timestamp": "20250810_084927",
+  "timestamp": "20250810_141541",
   "include_reference": true
 }

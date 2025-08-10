@@ -194,4 +194,19 @@ Current RAG Implementation State
   
   uv run python -m app.cli eval-search --dataset eval/datasets/synthetic_large_500_20250810_084933.jsonl --enhanced --max-samples 2 --variants bm25,vec
 
-  uv run python -m app.cli eval-search --dataset eval/datasets/search_eval.jsonl --top-k 10 --rrf-k 60 --max-samples 12 --variants bm25,vec,rrf,rrf_ce
+  uv run python -m app.cli eval-search --dataset eval/datasets/synthetic_large_500_20250810_084933.jsonl --top-k 10 --rrf-k 60 --max-samples 12 --variants bm25,vec,rrf,rrf_ce
+
+   # Generate realistic test data
+  uv run python -m app.cli generate-testset \
+    --num-samples 100 \
+    --output-name realistic_catalog \
+    --use-v2
+
+  # Run evaluation with optimized parameters
+  uv run python -m app.cli eval-search \
+    --dataset eval/datasets/realistic_catalog_100_20250810_141003.jsonl \
+    --top-k 25 \
+    --rrf-k 80 \
+    --max-samples 20 \
+    --variants bm25,vec,rrf,rrf_ce \
+    --enhanced

@@ -1398,12 +1398,13 @@ def eval_chat(
 @app.command("generate-testset")
 def generate_testset(
     num_samples: int = typer.Option(500, help="Number of test samples to generate"),
-    output_name: str = typer.Option("synthetic", help="Output filename prefix"),
+    output_name: str = typer.Option("realistic", help="Output filename prefix"),
     include_reference: bool = typer.Option(True, help="Include reference answers"),
     distribution_preset: str = typer.Option("balanced", help="Query distribution: balanced, simple, complex, mixed"),
     seed: int = typer.Option(42, help="Random seed for reproducibility"),
     products_path: Path = typer.Option(DATA_PRODUCTS, exists=True),
     reviews_path: Path = typer.Option(DATA_REVIEWS, exists=True),
+    use_v2: bool = typer.Option(True, help="Use realistic v2 generator based on actual catalog"),
 ) -> None:
     """Generate synthetic test dataset with diverse query types.
     
@@ -1414,10 +1415,16 @@ def generate_testset(
     - Recommendations (personalized suggestions)
     - Technical queries (specifications)
     - Problem-solving (troubleshooting)
+    
+    V2 generator creates realistic queries based on actual product catalog.
     """
-    from app.testset_generator import EcommerceQueryGenerator
+    if use_v2:
+        from app.testset_generator_v2 import RealisticQueryGenerator as QueryGenerator
+    else:
+        from app.testset_generator import EcommerceQueryGenerator as QueryGenerator
     
     typer.secho("\n🧪 Synthetic Test Data Generation", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"  Generator: {'Realistic V2 (catalog-based)' if use_v2 else 'Original'}", fg=typer.colors.WHITE)
     typer.secho(f"  Target samples: {num_samples}", fg=typer.colors.WHITE)
     typer.secho(f"  Distribution: {distribution_preset}", fg=typer.colors.WHITE)
     typer.secho(f"  Include references: {include_reference}", fg=typer.colors.WHITE)
@@ -1431,7 +1438,7 @@ def generate_testset(
     typer.secho(f"  ✓ Loaded {len(reviews)} reviews\n", fg=typer.colors.GREEN)
     
     # Initialize generator
-    generator = EcommerceQueryGenerator(products, reviews, seed)
+    generator = QueryGenerator(products, reviews, seed)
     
     # Define distribution presets
     distributions = {
@@ -1489,20 +1496,27 @@ def generate_testset(
     # Generate dataset
     typer.secho(f"\n⚙️  Generating {num_samples} test samples...", fg=typer.colors.BLUE)
     
-    if include_reference:
-        dataset = generator.generate_with_reference_answers(num_samples)
+    if use_v2:
+        # V2 generator uses distribution string directly
+        dataset = generator.generate_dataset(num_samples, distribution_preset)
     else:
-        dataset = generator.generate_dataset(num_samples, distribution)
+        # Original generator uses distribution dict
+        if include_reference:
+            dataset = generator.generate_with_reference_answers(num_samples)
+        else:
+            dataset = generator.generate_dataset(num_samples, distribution)
     
     # Analyze generated dataset
     complexity_stats = {"simple": 0, "moderate": 0, "complex": 0}
     query_type_stats = {}
     
     for sample in dataset:
-        complexity = sample["metadata"]["complexity"]
-        complexity_stats[complexity] += 1
+        # Handle both v1 and v2 format
+        metadata = sample.get("metadata", {})
+        complexity = metadata.get("complexity", "moderate")
+        complexity_stats[complexity] = complexity_stats.get(complexity, 0) + 1
         
-        query_type = sample["metadata"]["query_type"]
+        query_type = metadata.get("query_type", "general")
         query_type_stats[query_type] = query_type_stats.get(query_type, 0) + 1
     
     # Save dataset
@@ -1527,17 +1541,20 @@ def generate_testset(
         f.write(json.dumps(metadata) + "\n")
         
         # Write samples
-        for sample in dataset:
+        for i, sample in enumerate(dataset):
             output_sample = {
-                "question": sample["query"],
-                "query": sample["query"],
-                "query_id": sample["query_id"],
-                "metadata": sample["metadata"]
+                "question": sample.get("query", ""),
+                "query": sample.get("query", ""),
+                "query_id": sample.get("query_id", f"q_{i:04d}"),
+                "metadata": sample.get("metadata", {})
             }
             
             if "reference_answer" in sample:
                 output_sample["reference_answer"] = sample["reference_answer"]
                 output_sample["ground_truth"] = sample["reference_answer"]
+            elif "reference" in sample:
+                output_sample["reference_answer"] = sample["reference"]
+                output_sample["ground_truth"] = sample["reference"]
             
             if "expected_context_type" in sample:
                 output_sample["expected_context_type"] = sample["expected_context_type"]
