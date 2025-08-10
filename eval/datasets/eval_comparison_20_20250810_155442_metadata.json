@@ -1,0 +1,29 @@
+{
+  "total_samples": 20,
+  "generation_seed": 42,
+  "distribution_preset": "balanced",
+  "distribution": {
+    "single_hop_factual": 0.25,
+    "multi_hop_reasoning": 0.2,
+    "abstract_interpretive": 0.1,
+    "comparative": 0.15,
+    "recommendation": 0.15,
+    "technical": 0.1,
+    "problem_solving": 0.05
+  },
+  "complexity_distribution": {
+    "simple": 7,
+    "moderate": 9,
+    "complex": 4
+  },
+  "query_type_distribution": {
+    "comparative": 3,
+    "single_hop": 3,
+    "technical": 3,
+    "problem_solving": 3,
+    "multi_hop": 4,
+    "recommendation": 4
+  },
+  "timestamp": "20250810_155442",
+  "include_reference": true
+}

@@ -389,7 +389,6 @@ uv run python -m app.cli generate-testset [OPTIONS]
 **Options:**
 - `--num-samples INTEGER` (default: 500) - Number of test samples to generate
 - `--output-name TEXT` (default: "realistic") - Output filename prefix
-- `--use-v2` (default: True) - Use V2 generator for catalog-based queries
 - `--include-reference` (default: True) - Include reference answers
 - `--distribution-preset TEXT` (default: "balanced") - Query distribution:
   - `balanced` - Equal distribution across all query types
@@ -400,7 +399,7 @@ uv run python -m app.cli generate-testset [OPTIONS]
 - `--products-path PATH` - Path to products JSONL
 - `--reviews-path PATH` - Path to reviews JSONL
 
-**V2 Generator Features (Recommended):**
+**Features:**
 - Uses actual product titles, brands, and categories from catalog
 - Generates realistic brand-category combinations
 - Creates comparative queries between similar products
@@ -418,29 +417,26 @@ uv run python -m app.cli generate-testset [OPTIONS]
 
 **Examples:**
 ```bash
-# Generate realistic test samples (V2 - recommended)
+# Generate realistic test samples
 uv run python -m app.cli generate-testset \
     --num-samples 100 \
-    --use-v2 \
     --output-name realistic_catalog
 
 # Generate simple queries for quick testing
 uv run python -m app.cli generate-testset \
     --num-samples 100 \
-    --distribution-preset simple \
-    --use-v2
+    --distribution-preset simple
 
 # Generate complex queries for stress testing
 uv run python -m app.cli generate-testset \
     --num-samples 200 \
     --distribution-preset complex \
-    --output-name stress_test \
-    --use-v2
+    --output-name stress_test
 
-# Use original generator (not recommended - may generate nonsensical queries)
+# Custom seed for reproducibility
 uv run python -m app.cli generate-testset \
-    --num-samples 100 \
-    --use-v2 false
+    --num-samples 50 \
+    --seed 123
 ```
 
 ---

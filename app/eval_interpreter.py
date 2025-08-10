@@ -607,7 +607,7 @@ def generate_chat_interpretation(
     interpretation.append(f"- Dataset: {config.get('dataset', 'N/A')}")
     interpretation.append(f"- Samples Evaluated: {config.get('max_samples', 'N/A')}")
     interpretation.append(f"- Context Top-K: {config.get('top_k', 'N/A')}")
-    interpretation.append(f"- Model: {config.get('model', 'gpt-4o-mini')}")
+    interpretation.append(f"- Model: {config.get('model', 'gpt-5-mini')}")
     
     # Success criteria
     interpretation.append("\n## Success Criteria Assessment\n")

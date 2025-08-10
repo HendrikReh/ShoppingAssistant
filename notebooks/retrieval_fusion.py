@@ -17,9 +17,9 @@ def _():
 
     DATA_PRODUCTS = "data/top_1000_products.jsonl"
     DATA_REVIEWS = "data/100_top_reviews_of_the_top_1000_products.jsonl"
-    COLLECTION_PRODUCTS = "products_gte_large"
-    COLLECTION_REVIEWS = "reviews_gte_large"
-    MODEL_NAME = "thenlper/gte-large"
+    COLLECTION_PRODUCTS = "products_minilm"
+    COLLECTION_REVIEWS = "reviews_minilm"
+    MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
     # More accurate cross-encoder with 12 layers for better reranking
     CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
     VECTOR_SIZE = 1024
@@ -193,23 +193,7 @@ def _(
     COLLECTION_REVIEWS,
 ):
     def vector_search(collection: str, vector: list[float], top_k: int = 20):
-        # Prefer query_points when correctly configured; fallback to search for compatibility
-        try:
-            # Try query_points only when the new API signature is available
-            res = client.query_points(  # type: ignore[attr-defined]
-                collection_name=collection,
-                # Using deprecated search until query_points vector form is configured
-                limit=top_k,
-                with_payload=True,
-            )
-            points = getattr(res, "points", res)
-            if points:
-                # If no vector provided, results will be empty; fall back below
-                return [(str(p.id), float(p.score), p.payload) for p in points]
-        except Exception:
-            pass
-
-        # Fallback to legacy search API (works reliably across client versions)
+        # Use the search API directly (more reliable)
         hits = client.search(
             collection_name=collection,
             query_vector=vector,

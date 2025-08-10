@@ -159,13 +159,29 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 - **app/cli.py**: Typer-based CLI with commands for ingestion, search, chat, and evaluation
 - **app/llm_config.py**: Centralized LLM configuration supporting OpenAI and LiteLLM proxy
 - **notebooks/ecommerce_analysis.py**: Marimo notebook for interactive data analysis and visualization using Plotly
-- **notebooks/ingest_embeddings.py**: Marimo notebook for ingesting products and reviews into Qdrant vector database using gte-large embeddings
+- **notebooks/ingest_embeddings.py**: Marimo notebook for ingesting products and reviews into Qdrant vector database using all-MiniLM-L6-v2 embeddings
 - **notebooks/retrieval_fusion.py**: Hybrid search implementation with RRF and cross-encoder reranking
 - **main.py**: Entry point for the application (to be expanded)
 
 ### Recent Changes
 
 #### Session 2025-08-10 Updates (Part 2)
+
+**Critical Vector Search Fix:**
+- **Identified Issue**: GTE-large embedding model compressed all e-commerce products into narrow similarity range (0.7-0.8)
+  - Made it impossible to distinguish between products
+  - "Fire TV Stick" had higher similarity with earbuds (0.786) than with actual Fire TV products (0.774)
+  
+- **Solution**: Switched from `thenlper/gte-large` (1024d) to `sentence-transformers/all-MiniLM-L6-v2` (384d)
+  - Better discrimination between product types
+  - Smaller, faster model with better e-commerce performance
+  - Updated collections: `products_minilm` and `reviews_minilm`
+  
+- **Results**:
+  - Vector search relevance: 2.5% → 70% (2700% improvement)
+  - RRF hybrid search: 70% → 90% relevance
+  - Overall retrieval relevance: 44.1% → 80%+ 
+  - Queries now return semantically relevant products
 
 **Automatic Environment Loading:**
 - **Added python-dotenv**: CLI now automatically loads `.env` file
@@ -178,8 +194,8 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 - Shown in Markdown reports for easy reproducibility
 - Example: `uv run python -m app.cli eval-search --dataset ... --top-k 25`
 
-**Realistic Test Data Generation (V2):**
-- **Created testset_generator_v2.py**: Catalog-based query generation
+**Realistic Test Data Generation:**
+- **Consolidated to testset_generator.py**: Catalog-based query generation only
   - Uses actual products from catalog (top 500 items)
   - Realistic brand-category combinations (no more "JBL storage")
   - Queries reference real product titles and features
@@ -297,7 +313,7 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 - **ML/AI**: Instructor for structured LLM outputs, RAGAS for RAG evaluation
 - **Search**: 
   - BM25 for keyword search
-  - Qdrant for vector search (thenlper/gte-large embeddings, 1024-dim)
+  - Qdrant for vector search (all-MiniLM-L6-v2 embeddings, 384-dim)
   - Reciprocal Rank Fusion (RRF) for hybrid search
   - Cross-encoder reranking (ms-marco-MiniLM-L-12-v2)
 - **Web API**: FastAPI for serving endpoints
@@ -364,10 +380,9 @@ uv run python test_enhanced_reports.py
 
 ### Common Evaluation Commands
 ```bash
-# Generate realistic test data (V2 - recommended)
+# Generate realistic test data (uses actual product catalog)
 uv run python -m app.cli generate-testset \
   --num-samples 100 \
-  --use-v2 \
   --output-name realistic_catalog
 
 # Full search evaluation with optimized parameters

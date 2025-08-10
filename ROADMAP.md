@@ -210,3 +210,13 @@ Current RAG Implementation State
     --max-samples 20 \
     --variants bm25,vec,rrf,rrf_ce \
     --enhanced
+
+
+======= ISSUE WITH EMBEDDING WAS ==========
+
+This is the problem! The GTE-large model is giving extremely high similarity scores between completely unrelated products. "Fire TV Stick" has 0.7865 similarity with "Beats Flex Wireless Earbuds" but only 0.7736 with an actual Fire TV product!
+
+  The issue is that GTE-large seems to compress all e-commerce product embeddings into a very narrow range (0.7-0.8), making it nearly impossible to distinguish between products. This is a known issue with some embedding models on domain-specific
+  text.
+
+  Let me update the todo list and implement a fix using a different embedding model:

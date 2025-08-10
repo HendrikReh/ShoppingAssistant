@@ -47,11 +47,11 @@ app = typer.Typer(help="ShoppingAssistant CLI")
 # Defaults aligned with notebooks
 DATA_PRODUCTS = Path("data/top_1000_products.jsonl")
 DATA_REVIEWS = Path("data/100_top_reviews_of_the_top_1000_products.jsonl")
-COLLECTION_PRODUCTS = "products_gte_large"
-COLLECTION_REVIEWS = "reviews_gte_large"
-EMBED_MODEL = "thenlper/gte-large"
+COLLECTION_PRODUCTS = "products_minilm"
+COLLECTION_REVIEWS = "reviews_minilm"
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
-VECTOR_SIZE = 1024
+VECTOR_SIZE = 384  # MiniLM has 384 dimensions
 
 
 @app.callback(invoke_without_command=True)
@@ -789,11 +789,15 @@ def eval_search(
     from ragas import evaluate as ragas_evaluate
     # Use metrics that don't require reference answers
     from ragas.metrics import ContextRelevance, ContextUtilization
+    from app.ragas_config import configure_ragas_metrics
     
     # Capture the full execution command
     execution_command = " ".join(sys.argv)
     
-    # Configure LLM for RAGAS evaluation
+    # Configure LLM for RAGAS evaluation with GPT-5 fix
+    from app.ragas_gpt5_fix import setup_gpt5_compatibility
+    setup_gpt5_compatibility()
+    
     llm_config = get_llm_config()
     try:
         llm_config.configure_ragas()
@@ -866,7 +870,7 @@ def eval_search(
                 
                 # Search products
                 prod_results = client.search(
-                    collection_name="products_gte_large",
+                    collection_name="products_minilm",
                     query_vector=query_vec.cpu().numpy().tolist(),
                     limit=top_k,
                     with_payload=True
@@ -874,7 +878,7 @@ def eval_search(
                 
                 # Search reviews
                 rev_results = client.search(
-                    collection_name="reviews_gte_large",
+                    collection_name="reviews_minilm",
                     query_vector=query_vec.cpu().numpy().tolist(),
                     limit=top_k,
                     with_payload=True
@@ -1054,7 +1058,9 @@ def eval_search(
                 continue
             ds = Dataset.from_list(rows)
             try:
-                res = ragas_evaluate(ds, metrics=[ContextRelevance(), ContextUtilization()])
+                # Create metrics with GPT-5 compatible configuration
+                metrics = configure_ragas_metrics([ContextRelevance, ContextUtilization])
+                res = ragas_evaluate(ds, metrics=metrics)
                 scores: dict[str, float] = {}
                 # Try to aggregate robustly across ragas versions
                 try:
@@ -1196,12 +1202,16 @@ def eval_chat(
     from datasets import Dataset
     from ragas import evaluate as ragas_evaluate
     from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
+    from app.ragas_config import configure_ragas_metrics
     import dspy
 
     # Capture the full execution command
     execution_command = " ".join(sys.argv)
 
-    # Configure LLMs for both DSPy chat and RAGAS evaluation
+    # Configure LLMs for both DSPy chat and RAGAS evaluation with GPT-5 fix
+    from app.ragas_gpt5_fix import setup_gpt5_compatibility
+    setup_gpt5_compatibility()
+    
     llm_config = get_llm_config()
     try:
         llm_config.configure_ragas()  # For evaluation
@@ -1266,7 +1276,9 @@ def eval_chat(
         mlflow.log_param("top_k", top_k)
         mlflow.log_param("max_samples", max_samples)
         ds = Dataset.from_list(rows_eval)
-        res = ragas_evaluate(ds, metrics=[faithfulness, answer_relevancy, context_precision, context_recall])
+        # Create metrics with GPT-5 compatible configuration
+        metrics = configure_ragas_metrics([faithfulness, answer_relevancy, context_precision, context_recall])
+        res = ragas_evaluate(ds, metrics=metrics)
         # Extract scores from EvaluationResult object
         scores: dict[str, float] = {}
         try:
@@ -1404,9 +1416,8 @@ def generate_testset(
     seed: int = typer.Option(42, help="Random seed for reproducibility"),
     products_path: Path = typer.Option(DATA_PRODUCTS, exists=True),
     reviews_path: Path = typer.Option(DATA_REVIEWS, exists=True),
-    use_v2: bool = typer.Option(True, help="Use realistic v2 generator based on actual catalog"),
 ) -> None:
-    """Generate synthetic test dataset with diverse query types.
+    """Generate realistic test dataset based on actual product catalog.
     
     Creates test data with various query complexities:
     - Single-hop factual queries (simple lookups)
@@ -1416,15 +1427,12 @@ def generate_testset(
     - Technical queries (specifications)
     - Problem-solving (troubleshooting)
     
-    V2 generator creates realistic queries based on actual product catalog.
+    Queries are generated using real products, brands, and categories from the catalog.
     """
-    if use_v2:
-        from app.testset_generator_v2 import RealisticQueryGenerator as QueryGenerator
-    else:
-        from app.testset_generator import EcommerceQueryGenerator as QueryGenerator
+    from app.testset_generator import RealisticQueryGenerator
     
-    typer.secho("\n🧪 Synthetic Test Data Generation", fg=typer.colors.CYAN, bold=True)
-    typer.secho(f"  Generator: {'Realistic V2 (catalog-based)' if use_v2 else 'Original'}", fg=typer.colors.WHITE)
+    typer.secho("\n🧪 Realistic Test Data Generation", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"  Generator: Catalog-based (using actual products)", fg=typer.colors.WHITE)
     typer.secho(f"  Target samples: {num_samples}", fg=typer.colors.WHITE)
     typer.secho(f"  Distribution: {distribution_preset}", fg=typer.colors.WHITE)
     typer.secho(f"  Include references: {include_reference}", fg=typer.colors.WHITE)
@@ -1438,7 +1446,7 @@ def generate_testset(
     typer.secho(f"  ✓ Loaded {len(reviews)} reviews\n", fg=typer.colors.GREEN)
     
     # Initialize generator
-    generator = QueryGenerator(products, reviews, seed)
+    generator = RealisticQueryGenerator(products, reviews, seed)
     
     # Define distribution presets
     distributions = {
@@ -1496,15 +1504,8 @@ def generate_testset(
     # Generate dataset
     typer.secho(f"\n⚙️  Generating {num_samples} test samples...", fg=typer.colors.BLUE)
     
-    if use_v2:
-        # V2 generator uses distribution string directly
-        dataset = generator.generate_dataset(num_samples, distribution_preset)
-    else:
-        # Original generator uses distribution dict
-        if include_reference:
-            dataset = generator.generate_with_reference_answers(num_samples)
-        else:
-            dataset = generator.generate_dataset(num_samples, distribution)
+    # Generator uses distribution string directly
+    dataset = generator.generate_dataset(num_samples, distribution_preset)
     
     # Analyze generated dataset
     complexity_stats = {"simple": 0, "moderate": 0, "complex": 0}

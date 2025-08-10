@@ -16,10 +16,10 @@ def _():
 
     DATA_PRODUCTS = "data/top_1000_products.jsonl"
     DATA_REVIEWS = "data/100_top_reviews_of_the_top_1000_products.jsonl"
-    COLLECTION_PRODUCTS = "products_gte_large"
-    COLLECTION_REVIEWS = "reviews_gte_large"
-    MODEL_NAME = "thenlper/gte-large"
-    VECTOR_SIZE = 1024
+    COLLECTION_PRODUCTS = "products_minilm"
+    COLLECTION_REVIEWS = "reviews_minilm"
+    MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+    VECTOR_SIZE = 384
 
     header_panel = mo.vstack([
         mo.md("# Ingest and Embed: Products and Reviews → Qdrant (gte-large)"),

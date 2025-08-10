@@ -14,11 +14,11 @@ class LLMConfig:
     """Configuration for LLM usage across different tasks."""
     
     # Default model for all tasks (can be overridden per task)
-    default_model: str = "gpt-4o-mini"
+    default_model: str = "gpt-5-mini"
     
     # Task-specific models
-    chat_model: str = "gpt-4o-mini"  # DSPy chat/RAG
-    eval_model: str = "gpt-4o-mini"  # RAGAS evaluation
+    chat_model: str = "gpt-5-mini"  # DSPy chat/RAG
+    eval_model: str = "gpt-5-mini"  # RAGAS evaluation
     
     # API configuration
     api_base: Optional[str] = None  # e.g., "http://localhost:4000/v1" for LiteLLM proxy

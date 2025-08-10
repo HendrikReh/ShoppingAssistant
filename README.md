@@ -119,18 +119,16 @@ uv run python -m app.cli chat \
 
 ### Evaluation
 
-#### Generate Realistic Test Data (V2 - Catalog-Based)
+#### Generate Realistic Test Data (Catalog-Based)
 ```bash
 # Generate realistic test samples based on actual product catalog
 uv run python -m app.cli generate-testset \
-  --num-samples 100 \
-  --use-v2  # Uses actual products from catalog
+  --num-samples 100  # Uses actual products from catalog
 
 # Generate with different complexity distributions
 uv run python -m app.cli generate-testset \
   --num-samples 200 \
-  --distribution-preset complex \
-  --use-v2
+  --distribution-preset complex
 ```
 
 #### Run Evaluations with Optimized Parameters
@@ -216,8 +214,7 @@ ShoppingAssistant/
 │   ├── cli.py                  # Typer CLI implementation  
 │   ├── llm_config.py           # Centralized LLM configuration
 │   ├── eval_interpreter.py     # Evaluation metrics interpretation
-│   ├── testset_generator.py    # Original test data generator
-│   └── testset_generator_v2.py # Realistic catalog-based generator
+│   └── testset_generator.py    # Realistic catalog-based test data generator
 ├── notebooks/                  # Interactive Marimo notebooks
 │   ├── ecommerce_analysis.py
 │   ├── ingest_embeddings.py

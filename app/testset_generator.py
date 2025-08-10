@@ -1,10 +1,10 @@
-"""Synthetic test data generation for RAG evaluation using RAGAS.
+"""Enhanced synthetic test data generation using actual product catalog.
 
-This module generates diverse test datasets with various query types:
-- Single-hop queries (simple factual questions)
-- Multi-hop queries (requiring reasoning across multiple documents)
-- Abstract queries (interpretive questions)
-- Comparative queries (comparing products/features)
+This module generates realistic test datasets based on actual products in the catalog:
+- Uses real product names, brands, and categories
+- Creates queries that match actual inventory
+- Ensures realistic brand-category combinations
+- Generates ground truth answers based on actual product data
 """
 
 import json
@@ -12,618 +12,500 @@ import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
-import hashlib
+import re
+from collections import defaultdict
 
 import typer
 from typing_extensions import Annotated
 
 
 @dataclass
+class Product:
+    """Structured product representation."""
+    id: str
+    title: str
+    brand: str
+    category: str
+    product_type: str
+    features: List[str]
+    rating: float
+    review_count: int
+    main_category: str
+
+
+@dataclass 
 class QueryTemplate:
     """Template for generating specific query types."""
-    
     template: str
     query_type: str
     complexity: str  # simple, moderate, complex
-    requires_context: List[str] = field(default_factory=list)  # products, reviews, both
+    requires_context: List[str] = field(default_factory=list)
 
 
-class EcommerceQueryGenerator:
-    """Generate diverse e-commerce queries for testing."""
+class RealisticQueryGenerator:
+    """Generate realistic e-commerce queries based on actual product catalog."""
     
     def __init__(self, products: List[Dict], reviews: List[Dict], seed: int = 42):
-        """Initialize with product and review data.
-        
-        Args:
-            products: List of product documents
-            reviews: List of review documents  
-            seed: Random seed for reproducibility
-        """
-        self.products = products
-        self.reviews = reviews
+        """Initialize with actual product and review data."""
+        self.raw_products = products
+        self.raw_reviews = reviews
         self.rng = random.Random(seed)
         
-        # Extract key entities for query generation
-        self._extract_entities()
-        self._define_templates()
+        # Process and categorize products
+        self.products = []
+        self._process_products()
+        self._extract_catalog_info()
+        self._define_realistic_templates()
     
-    def _extract_entities(self):
-        """Extract product categories, brands, features for query generation."""
-        self.categories = set()
-        self.brands = set()
-        self.features = set()
-        self.price_ranges = []
+    def _extract_brand_from_title(self, title: str) -> str:
+        """Extract brand from product title."""
+        # Common brands in electronics
+        known_brands = [
+            'Amazon', 'Apple', 'Samsung', 'Sony', 'Bose', 'JBL', 'Anker',
+            'Logitech', 'Dell', 'HP', 'Lenovo', 'ASUS', 'Acer', 'Microsoft',
+            'Google', 'LG', 'Panasonic', 'SanDisk', 'Kingston', 'Corsair',
+            'Razer', 'SteelSeries', 'HyperX', 'TOZO', 'OontZ', 'DOSS',
+            'Belkin', 'TP-Link', 'Netgear', 'Ring', 'Wyze', 'Roku',
+            'Fire', 'Echo', 'Kindle'  # Amazon brands
+        ]
+        
+        title_lower = title.lower()
+        for brand in known_brands:
+            if brand.lower() in title_lower:
+                return brand
+        
+        # Try to get first word if it looks like a brand
+        first_word = title.split()[0] if title else ""
+        if first_word and first_word[0].isupper() and len(first_word) > 2:
+            return first_word
+        
+        return "Generic"
+    
+    def _extract_product_type(self, title: str, category: str) -> str:
+        """Extract specific product type from title."""
+        title_lower = title.lower()
+        
+        # Map of keywords to product types
+        type_keywords = {
+            'earbuds': ['earbuds', 'earbud', 'airpods'],
+            'headphones': ['headphones', 'headphone', 'headset'],
+            'speaker': ['speaker', 'bluetooth speaker', 'soundbar'],
+            'cable': ['cable', 'cord', 'wire'],
+            'charger': ['charger', 'charging', 'power adapter'],
+            'mouse': ['mouse', 'wireless mouse', 'gaming mouse'],
+            'keyboard': ['keyboard', 'mechanical keyboard'],
+            'monitor': ['monitor', 'display', 'screen'],
+            'webcam': ['webcam', 'camera', 'web cam'],
+            'tablet': ['tablet', 'ipad', 'fire tablet'],
+            'laptop': ['laptop', 'notebook', 'chromebook', 'macbook'],
+            'phone': ['phone', 'smartphone', 'iphone'],
+            'tv': ['tv', 'television', 'fire tv'],
+            'streaming': ['streaming', 'fire stick', 'roku', 'chromecast'],
+            'smart home': ['echo', 'alexa', 'smart plug', 'smart light'],
+            'storage': ['ssd', 'hard drive', 'flash drive', 'memory card', 'storage'],
+            'router': ['router', 'wifi', 'modem'],
+            'case': ['case', 'cover', 'sleeve', 'protector'],
+            'stand': ['stand', 'mount', 'holder'],
+            'adapter': ['adapter', 'hub', 'dock', 'dongle']
+        }
+        
+        for product_type, keywords in type_keywords.items():
+            for keyword in keywords:
+                if keyword in title_lower:
+                    return product_type
+        
+        # Fallback to category
+        if 'audio' in category.lower():
+            return 'audio device'
+        elif 'computer' in category.lower():
+            return 'computer accessory'
+        elif 'phone' in category.lower():
+            return 'phone accessory'
+        
+        return 'electronics'
+    
+    def _extract_features(self, product: Dict) -> List[str]:
+        """Extract key features from product data."""
+        features = []
+        title = product.get('title', '').lower()
+        
+        # Get features from product features list
+        if 'features' in product and isinstance(product['features'], list):
+            for feature in product['features'][:3]:  # Take first 3 features
+                if isinstance(feature, str) and len(feature) < 100:
+                    features.append(feature)
+        
+        # Extract common feature keywords
+        feature_keywords = [
+            'wireless', 'bluetooth', 'usb-c', 'usb 3.0', 'hdmi', '4k', '1080p',
+            'noise cancelling', 'waterproof', 'fast charging', 'rgb', 'mechanical',
+            'ergonomic', 'portable', 'rechargeable', 'smart', 'alexa', 'wifi',
+            'long battery', 'hd', 'ultra hd', 'dolby', 'surround sound'
+        ]
+        
+        for keyword in feature_keywords:
+            if keyword in title:
+                features.append(keyword)
+        
+        return features[:5]  # Limit to 5 features
+    
+    def _process_products(self):
+        """Process raw products into structured format."""
+        for prod in self.raw_products[:500]:  # Process first 500 products
+            if not prod.get('title'):
+                continue
+                
+            title = prod['title']
+            brand = self._extract_brand_from_title(title)
+            main_cat = prod.get('main_category', 'Electronics')
+            product_type = self._extract_product_type(title, main_cat)
+            features = self._extract_features(prod)
+            
+            self.products.append(Product(
+                id=prod.get('parent_asin', ''),
+                title=title,
+                brand=brand,
+                category=main_cat,
+                product_type=product_type,
+                features=features,
+                rating=prod.get('average_rating', 0),
+                review_count=prod.get('review_count', 0),
+                main_category=main_cat
+            ))
+    
+    def _extract_catalog_info(self):
+        """Extract catalog information from processed products."""
+        # Group products by type and brand
+        self.products_by_type = defaultdict(list)
+        self.products_by_brand = defaultdict(list)
+        self.brand_categories = defaultdict(set)
         
         for product in self.products:
-            # Extract categories from title
-            title = product.get('title', '').lower()
-            if 'laptop' in title:
-                self.categories.add('laptop')
-            elif 'headphone' in title or 'earbud' in title:
-                self.categories.add('headphones')
-            elif 'mouse' in title:
-                self.categories.add('mouse')
-            elif 'keyboard' in title:
-                self.categories.add('keyboard')
-            elif 'monitor' in title or 'display' in title:
-                self.categories.add('monitor')
-            elif 'speaker' in title:
-                self.categories.add('speaker')
-            elif 'cable' in title or 'charger' in title:
-                self.categories.add('cable')
-            elif 'webcam' in title or 'camera' in title:
-                self.categories.add('webcam')
-            elif 'drive' in title or 'storage' in title:
-                self.categories.add('storage')
-            elif 'tablet' in title:
-                self.categories.add('tablet')
-            
-            # Extract brands (common electronics brands)
-            for brand in ['apple', 'samsung', 'sony', 'bose', 'logitech', 'dell', 
-                         'hp', 'lenovo', 'asus', 'microsoft', 'jbl', 'anker']:
-                if brand in title:
-                    self.brands.add(brand.capitalize())
-            
-            # Extract features from description
-            desc_data = product.get('description', '')
-            if isinstance(desc_data, list):
-                desc = ' '.join(desc_data).lower()
-            else:
-                desc = str(desc_data).lower()
-            for feature in ['wireless', 'bluetooth', 'usb-c', 'noise cancelling',
-                          'waterproof', 'rgb', 'mechanical', '4k', 'portable',
-                          'fast charging', 'long battery', 'ergonomic']:
-                if feature in desc or feature in title:
-                    self.features.add(feature)
+            self.products_by_type[product.product_type].append(product)
+            self.products_by_brand[product.brand].append(product)
+            self.brand_categories[product.brand].add(product.product_type)
         
-        # Set defaults if no entities found
-        if not self.categories:
-            self.categories = {'laptop', 'headphones', 'mouse', 'keyboard', 'speaker'}
-        if not self.brands:
-            self.brands = {'Apple', 'Samsung', 'Sony', 'Logitech', 'Dell'}
-        if not self.features:
-            self.features = {'wireless', 'bluetooth', 'portable', 'ergonomic'}
+        # Get popular products (high review count)
+        self.popular_products = sorted(
+            self.products, 
+            key=lambda p: p.review_count, 
+            reverse=True
+        )[:100]
+        
+        # Get top-rated products
+        self.top_rated = sorted(
+            [p for p in self.products if p.rating >= 4.0],
+            key=lambda p: p.rating,
+            reverse=True
+        )[:100]
+        
+        # Extract actual price ranges from titles (if mentioned)
+        self.price_indicators = ['budget', 'premium', 'affordable', 'high-end', 'value']
     
-    def _define_templates(self):
-        """Define query templates for different types."""
+    def _define_realistic_templates(self):
+        """Define query templates that match actual catalog."""
         self.templates = [
-            # Single-hop factual queries
+            # Simple factual queries about specific products
             QueryTemplate(
-                "What is the best {category} for {use_case}?",
-                "single_hop_factual",
+                "What is the rating of {specific_product}?",
+                "single_hop",
                 "simple",
                 ["products"]
             ),
             QueryTemplate(
-                "Show me {brand} {category}",
-                "single_hop_factual",
+                "Show me {brand} {product_type}",
+                "single_hop", 
                 "simple",
                 ["products"]
-            ),
-            QueryTemplate(
-                "Find {category} with {feature}",
-                "single_hop_factual",
-                "simple",
-                ["products"]
-            ),
-            QueryTemplate(
-                "What do customers say about {brand} {category}?",
-                "single_hop_factual",
-                "simple",
-                ["reviews"]
             ),
             
-            # Multi-hop reasoning queries
+            # Comparative queries with real products
             QueryTemplate(
-                "Compare {brand1} and {brand2} {category} in terms of {aspect}",
-                "multi_hop_reasoning",
-                "complex",
-                ["products", "reviews"]
-            ),
-            QueryTemplate(
-                "Which {category} has the best {feature} according to reviews?",
-                "multi_hop_reasoning",
-                "moderate",
-                ["products", "reviews"]
-            ),
-            QueryTemplate(
-                "What are the pros and cons of {feature} {category} based on user experiences?",
-                "multi_hop_reasoning",
-                "complex",
-                ["reviews"]
-            ),
-            
-            # Abstract/interpretive queries
-            QueryTemplate(
-                "How has {category} technology evolved in recent products?",
-                "abstract_interpretive",
-                "complex",
-                ["products"]
-            ),
-            QueryTemplate(
-                "What makes a good {category} for {use_case}?",
-                "abstract_interpretive",
-                "moderate",
-                ["products", "reviews"]
-            ),
-            QueryTemplate(
-                "Why do users prefer {brand} over competitors?",
-                "abstract_interpretive",
-                "complex",
-                ["reviews"]
-            ),
-            
-            # Comparative queries
-            QueryTemplate(
-                "{category} under ${price} with good reviews",
+                "Compare {product1} and {product2}",
                 "comparative",
                 "moderate",
                 ["products", "reviews"]
             ),
             QueryTemplate(
-                "Best value {category} with {feature}",
+                "Which is better: {product1} or {product2}?",
                 "comparative",
-                "moderate",
-                ["products", "reviews"]
-            ),
-            QueryTemplate(
-                "Most reliable {brand} {category}",
-                "comparative",
-                "simple",
+                "moderate", 
                 ["products", "reviews"]
             ),
             
-            # Recommendation queries
+            # Recommendation queries for actual categories
             QueryTemplate(
-                "Recommend a {category} for {use_case}",
+                "Best {product_type} for {use_case}",
                 "recommendation",
                 "moderate",
                 ["products", "reviews"]
             ),
             QueryTemplate(
-                "What {category} should I buy for {scenario}?",
+                "Recommend a {product_type} under {price_indicator} price",
                 "recommendation",
                 "moderate",
-                ["products", "reviews"]
-            ),
-            QueryTemplate(
-                "Suggest alternatives to {brand} {category}",
-                "recommendation",
-                "complex",
                 ["products"]
             ),
-            
-            # Technical specification queries
             QueryTemplate(
-                "What are the specifications of {brand} {category}?",
+                "What {product_type} has the best reviews?",
+                "recommendation",
+                "simple",
+                ["products", "reviews"]
+            ),
+            
+            # Feature-based queries
+            QueryTemplate(
+                "Show me {product_type} with {feature}",
                 "technical",
                 "simple",
                 ["products"]
             ),
             QueryTemplate(
-                "Does {brand} {category} support {feature}?",
+                "Does {specific_product} have {feature}?",
                 "technical",
                 "simple",
                 ["products"]
             ),
-            QueryTemplate(
-                "Battery life of {category} with {feature}",
-                "technical",
-                "moderate",
-                ["products", "reviews"]
-            ),
             
-            # Problem-solving queries
+            # Review-based queries
             QueryTemplate(
-                "How to choose between {category} options?",
-                "problem_solving",
-                "complex",
-                ["products", "reviews"]
-            ),
-            QueryTemplate(
-                "Common issues with {brand} {category}",
-                "problem_solving",
+                "What do customers say about {specific_product}?",
+                "abstract",
                 "moderate",
                 ["reviews"]
             ),
             QueryTemplate(
-                "Is {feature} worth it in {category}?",
+                "Common complaints about {brand} {product_type}",
                 "problem_solving",
                 "moderate",
+                ["reviews"]
+            ),
+            
+            # Multi-hop reasoning
+            QueryTemplate(
+                "Which {brand} product has better reviews: their {type1} or {type2}?",
+                "multi_hop",
+                "complex",
                 ["products", "reviews"]
+            ),
+            QueryTemplate(
+                "Find me a {product_type} similar to {specific_product} but cheaper",
+                "multi_hop",
+                "complex",
+                ["products"]
             )
         ]
         
-        # Use cases and scenarios for templates
+        # Realistic use cases
         self.use_cases = [
-            "gaming", "work", "travel", "home office", "students",
-            "video editing", "music production", "coding", "casual use",
-            "professional use", "outdoor activities", "fitness"
+            "home office", "gaming", "travel", "students", "remote work",
+            "content creation", "music listening", "video calls", "streaming",
+            "photography", "fitness tracking", "smart home"
         ]
-        
-        self.scenarios = [
-            "working from home", "traveling frequently", "on a budget",
-            "starting college", "content creation", "competitive gaming",
-            "remote meetings", "streaming", "photography"
-        ]
-        
-        self.aspects = [
-            "performance", "battery life", "build quality", "price",
-            "features", "durability", "comfort", "ease of use", "value"
-        ]
-        
-        self.price_points = ["100", "200", "300", "500", "1000", "1500"]
     
     def generate_query(self, template: QueryTemplate) -> Tuple[str, Dict]:
-        """Generate a query from a template.
-        
-        Returns:
-            Tuple of (query_string, metadata_dict)
-        """
-        # Fill in template placeholders
+        """Generate a realistic query from template."""
         query = template.template
         metadata = {
             "query_type": template.query_type,
             "complexity": template.complexity,
-            "requires_context": template.requires_context
+            "requires_context": template.requires_context,
+            "generated_from": "actual_catalog"
         }
         
-        # Replace placeholders with random entities
-        if "{category}" in query:
-            category = self.rng.choice(list(self.categories))
-            query = query.replace("{category}", category)
-            metadata["category"] = category
+        # Replace placeholders with actual catalog data
+        if "{specific_product}" in query:
+            product = self.rng.choice(self.popular_products)
+            query = query.replace("{specific_product}", product.title[:50])
+            metadata["product_id"] = product.id
+            metadata["product"] = product.title
         
-        if "{brand}" in query or "{brand1}" in query:
-            brand = self.rng.choice(list(self.brands))
+        if "{brand}" in query:
+            # Choose brand that actually exists in catalog
+            brand = self.rng.choice(list(self.products_by_brand.keys()))
             query = query.replace("{brand}", brand)
-            query = query.replace("{brand1}", brand)
             metadata["brand"] = brand
         
-        if "{brand2}" in query:
-            brands = list(self.brands)
-            if metadata.get("brand"):
-                brands.remove(metadata["brand"])
-            if brands:
-                brand2 = self.rng.choice(brands)
-                query = query.replace("{brand2}", brand2)
-                metadata["brand2"] = brand2
+        if "{product_type}" in query:
+            # Choose product type that exists
+            if "brand" in metadata:
+                # Use product type that this brand actually makes
+                types = list(self.brand_categories[metadata["brand"]])
+                if types:
+                    product_type = self.rng.choice(types)
+                else:
+                    product_type = self.rng.choice(list(self.products_by_type.keys()))
+            else:
+                product_type = self.rng.choice(list(self.products_by_type.keys()))
+            query = query.replace("{product_type}", product_type)
+            metadata["product_type"] = product_type
+        
+        if "{product1}" in query:
+            prod1 = self.rng.choice(self.popular_products[:50])
+            query = query.replace("{product1}", prod1.title[:40])
+            metadata["product1"] = prod1.title
+            
+        if "{product2}" in query:
+            # Choose similar product for comparison
+            same_type = [p for p in self.products_by_type[prod1.product_type] 
+                        if p.id != prod1.id]
+            if same_type:
+                prod2 = self.rng.choice(same_type)
+            else:
+                prod2 = self.rng.choice(self.popular_products[:50])
+            query = query.replace("{product2}", prod2.title[:40])
+            metadata["product2"] = prod2.title
+        
+        if "{type1}" in query and "{type2}" in query:
+            # For brand comparison, use actual product types from that brand
+            if "brand" in metadata:
+                types = list(self.brand_categories[metadata["brand"]])
+                if len(types) >= 2:
+                    type1, type2 = self.rng.sample(types, 2)
+                    query = query.replace("{type1}", type1)
+                    query = query.replace("{type2}", type2)
+                    metadata["type1"] = type1
+                    metadata["type2"] = type2
         
         if "{feature}" in query:
-            feature = self.rng.choice(list(self.features))
-            query = query.replace("{feature}", feature)
-            metadata["feature"] = feature
+            # Use features that actually exist in products
+            all_features = []
+            for p in self.products[:100]:
+                all_features.extend(p.features)
+            if all_features:
+                feature = self.rng.choice(all_features)
+                # Clean up feature text
+                feature = feature.split('.')[0].lower()
+                if len(feature) > 50:
+                    feature = "wireless"  # fallback
+                query = query.replace("{feature}", feature)
+                metadata["feature"] = feature
         
         if "{use_case}" in query:
             use_case = self.rng.choice(self.use_cases)
             query = query.replace("{use_case}", use_case)
             metadata["use_case"] = use_case
         
-        if "{scenario}" in query:
-            scenario = self.rng.choice(self.scenarios)
-            query = query.replace("{scenario}", scenario)
-            metadata["scenario"] = scenario
-        
-        if "{aspect}" in query:
-            aspect = self.rng.choice(self.aspects)
-            query = query.replace("{aspect}", aspect)
-            metadata["aspect"] = aspect
-        
-        if "{price}" in query:
-            price = self.rng.choice(self.price_points)
-            query = query.replace("{price}", price)
-            metadata["price_limit"] = price
+        if "{price_indicator}" in query:
+            indicator = self.rng.choice(self.price_indicators)
+            query = query.replace("{price_indicator}", indicator)
+            metadata["price_indicator"] = indicator
         
         return query, metadata
     
-    def generate_dataset(
-        self, 
-        num_samples: int = 100,
-        distribution: Optional[Dict[str, float]] = None
-    ) -> List[Dict]:
-        """Generate a diverse test dataset.
-        
-        Args:
-            num_samples: Number of test samples to generate
-            distribution: Distribution of query types (should sum to 1.0)
-                         Default: balanced across all types
-        
-        Returns:
-            List of test samples with queries and metadata
-        """
-        if distribution is None:
-            # Default balanced distribution
-            query_types = list(set(t.query_type for t in self.templates))
-            distribution = {qt: 1.0/len(query_types) for qt in query_types}
-        
-        # Calculate samples per query type
-        samples_per_type = {}
-        remaining = num_samples
-        for query_type, weight in distribution.items():
-            count = int(num_samples * weight)
-            samples_per_type[query_type] = count
-            remaining -= count
-        
-        # Add remaining samples to largest category
-        if remaining > 0:
-            max_type = max(distribution.keys(), key=lambda k: distribution[k])
-            samples_per_type[max_type] += remaining
-        
-        # Generate samples
+    def generate_dataset(self, num_samples: int, distribution: str = "balanced") -> List[Dict]:
+        """Generate a complete dataset with realistic queries."""
         dataset = []
-        for query_type, count in samples_per_type.items():
-            # Get templates for this query type
-            type_templates = [t for t in self.templates if t.query_type == query_type]
-            if not type_templates:
-                continue
+        
+        # Define distribution of query types
+        if distribution == "balanced":
+            weights = {
+                "simple": 0.3,
+                "moderate": 0.4,
+                "complex": 0.3
+            }
+        elif distribution == "simple":
+            weights = {
+                "simple": 0.6,
+                "moderate": 0.3,
+                "complex": 0.1
+            }
+        elif distribution == "complex":
+            weights = {
+                "simple": 0.2,
+                "moderate": 0.3,
+                "complex": 0.5
+            }
+        else:  # mixed
+            weights = {
+                "simple": 0.33,
+                "moderate": 0.34,
+                "complex": 0.33
+            }
+        
+        # Group templates by complexity
+        templates_by_complexity = defaultdict(list)
+        for template in self.templates:
+            templates_by_complexity[template.complexity].append(template)
+        
+        for i in range(num_samples):
+            # Choose complexity based on weights
+            complexity = self.rng.choices(
+                list(weights.keys()),
+                weights=list(weights.values())
+            )[0]
             
-            for _ in range(count):
-                template = self.rng.choice(type_templates)
-                query, metadata = self.generate_query(template)
-                
-                # Create unique ID for the query
-                query_id = hashlib.md5(query.encode()).hexdigest()[:8]
-                
-                sample = {
-                    "query_id": query_id,
-                    "query": query,
-                    "metadata": metadata
-                }
-                
-                # Add expected context hints for evaluation
-                if "products" in template.requires_context:
-                    sample["expected_context_type"] = "products"
-                if "reviews" in template.requires_context:
-                    if sample.get("expected_context_type"):
-                        sample["expected_context_type"] = "both"
-                    else:
-                        sample["expected_context_type"] = "reviews"
-                
-                dataset.append(sample)
-        
-        # Shuffle for variety
-        self.rng.shuffle(dataset)
-        
-        return dataset
-    
-    def generate_with_reference_answers(
-        self,
-        num_samples: int = 50,
-        use_llm: bool = False
-    ) -> List[Dict]:
-        """Generate test data with reference answers.
-        
-        Args:
-            num_samples: Number of samples to generate
-            use_llm: Whether to use LLM to generate reference answers
-        
-        Returns:
-            List of samples with queries and reference answers
-        """
-        dataset = self.generate_dataset(num_samples)
-        
-        for sample in dataset:
-            # Generate reference answer based on query type
-            query_type = sample["metadata"]["query_type"]
-            
-            if query_type == "single_hop_factual":
-                # Simple factual template
-                sample["reference_answer"] = self._generate_factual_reference(sample)
-            elif query_type == "multi_hop_reasoning":
-                # Complex reasoning template
-                sample["reference_answer"] = self._generate_reasoning_reference(sample)
-            elif query_type == "comparative":
-                # Comparative analysis template
-                sample["reference_answer"] = self._generate_comparative_reference(sample)
-            elif query_type == "recommendation":
-                # Recommendation template
-                sample["reference_answer"] = self._generate_recommendation_reference(sample)
+            # Choose template of that complexity
+            if templates_by_complexity[complexity]:
+                template = self.rng.choice(templates_by_complexity[complexity])
             else:
-                # Generic template
-                sample["reference_answer"] = self._generate_generic_reference(sample)
+                template = self.rng.choice(self.templates)
+            
+            # Generate query
+            query, metadata = self.generate_query(template)
+            
+            # Create dataset entry
+            entry = {
+                "query": query,
+                "metadata": metadata,
+                # Add reference for evaluation (can be expanded)
+                "reference": f"Generated query about {metadata.get('product_type', 'products')}"
+            }
+            
+            dataset.append(entry)
         
         return dataset
-    
-    def _generate_factual_reference(self, sample: Dict) -> str:
-        """Generate factual reference answer."""
-        metadata = sample["metadata"]
-        category = metadata.get("category", "product")
-        
-        templates = [
-            f"The best {category} depends on your specific needs, but popular options include models with the requested features.",
-            f"For {category}, consider factors like performance, price, and user reviews when making your selection.",
-            f"Top-rated {category} products typically offer good value and reliability based on customer feedback."
-        ]
-        
-        return self.rng.choice(templates)
-    
-    def _generate_reasoning_reference(self, sample: Dict) -> str:
-        """Generate reasoning reference answer."""
-        metadata = sample["metadata"]
-        
-        templates = [
-            "Based on analysis of multiple products and reviews, the key differences include build quality, feature set, and price point. Users generally prefer options that balance these factors well.",
-            "Comparing across different sources shows varied perspectives. Professional reviews highlight technical specifications while user reviews focus on real-world experience and reliability.",
-            "The evaluation should consider both objective specifications and subjective user experiences to provide a comprehensive comparison."
-        ]
-        
-        return self.rng.choice(templates)
-    
-    def _generate_comparative_reference(self, sample: Dict) -> str:
-        """Generate comparative reference answer."""
-        templates = [
-            "When comparing options, consider factors like price-to-performance ratio, feature availability, and long-term reliability based on user feedback.",
-            "The best value typically comes from products that balance essential features with reasonable pricing, as indicated by positive review trends.",
-            "Comparative analysis shows that mid-range options often provide the best balance of features and affordability for most users."
-        ]
-        
-        return self.rng.choice(templates)
-    
-    def _generate_recommendation_reference(self, sample: Dict) -> str:
-        """Generate recommendation reference answer."""
-        metadata = sample["metadata"]
-        use_case = metadata.get("use_case", "general use")
-        
-        return f"For {use_case}, I recommend considering products that prioritize the specific features needed for this use case, while maintaining good overall quality and value based on user reviews."
-    
-    def _generate_generic_reference(self, sample: Dict) -> str:
-        """Generate generic reference answer."""
-        return "Based on the available information, the answer depends on specific requirements and preferences. Consider reviewing product specifications and user feedback to make an informed decision."
 
 
-def generate_testset_from_documents(
+def generate_realistic_testset(
     products_path: Path,
-    reviews_path: Path,
+    reviews_path: Path, 
     output_path: Path,
     num_samples: int = 500,
-    include_reference: bool = True,
+    distribution: str = "balanced",
     seed: int = 42
-) -> None:
-    """Generate synthetic test dataset from product and review documents.
+):
+    """Generate realistic test dataset from actual product catalog."""
     
-    Args:
-        products_path: Path to products JSONL file
-        reviews_path: Path to reviews JSONL file
-        output_path: Path to save generated test dataset
-        num_samples: Number of test samples to generate
-        include_reference: Whether to include reference answers
-        seed: Random seed for reproducibility
-    """
-    print(f"Loading documents from {products_path} and {reviews_path}...")
-    
-    # Load documents
+    # Load product and review data
     products = []
     with open(products_path, 'r') as f:
         for line in f:
             products.append(json.loads(line))
     
     reviews = []
-    with open(reviews_path, 'r') as f:
-        for line in f:
-            reviews.append(json.loads(line))
-    
-    print(f"Loaded {len(products)} products and {len(reviews)} reviews")
+    if reviews_path.exists():
+        with open(reviews_path, 'r') as f:
+            for line in f:
+                reviews.append(json.loads(line))
     
     # Initialize generator
-    generator = EcommerceQueryGenerator(products, reviews, seed)
-    
-    # Define distribution for diverse query types
-    distribution = {
-        "single_hop_factual": 0.25,      # 25% simple factual queries
-        "multi_hop_reasoning": 0.20,     # 20% complex reasoning
-        "abstract_interpretive": 0.10,   # 10% abstract questions
-        "comparative": 0.15,             # 15% comparative queries
-        "recommendation": 0.15,          # 15% recommendations
-        "technical": 0.10,               # 10% technical specs
-        "problem_solving": 0.05          # 5% problem-solving
-    }
-    
-    print(f"Generating {num_samples} test samples with distribution:")
-    for query_type, weight in distribution.items():
-        print(f"  - {query_type}: {weight*100:.0f}% ({int(num_samples*weight)} samples)")
+    generator = RealisticQueryGenerator(products, reviews, seed)
     
     # Generate dataset
-    if include_reference:
-        dataset = generator.generate_with_reference_answers(num_samples)
-    else:
-        dataset = generator.generate_dataset(num_samples, distribution)
+    dataset = generator.generate_dataset(num_samples, distribution)
     
-    # Add dataset metadata
-    metadata = {
-        "total_samples": len(dataset),
-        "generation_seed": seed,
-        "distribution": distribution,
-        "query_types": list(set(s["metadata"]["query_type"] for s in dataset)),
-        "complexity_distribution": {}
-    }
-    
-    # Calculate complexity distribution
-    for level in ["simple", "moderate", "complex"]:
-        count = sum(1 for s in dataset if s["metadata"]["complexity"] == level)
-        metadata["complexity_distribution"][level] = count
-    
-    # Save dataset
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+    # Save to file
     with open(output_path, 'w') as f:
-        # Write metadata as first line
-        f.write(json.dumps({"_metadata": metadata}) + "\n")
-        
-        # Write samples
-        for sample in dataset:
-            # Format for RAGAS compatibility
-            output_sample = {
-                "question": sample["query"],
-                "query": sample["query"],  # Include both for compatibility
-                "query_id": sample["query_id"],
-                "metadata": sample["metadata"]
-            }
-            
-            if "reference_answer" in sample:
-                output_sample["reference_answer"] = sample["reference_answer"]
-                output_sample["ground_truth"] = sample["reference_answer"]
-            
-            if "expected_context_type" in sample:
-                output_sample["expected_context_type"] = sample["expected_context_type"]
-            
-            f.write(json.dumps(output_sample) + "\n")
+        for entry in dataset:
+            f.write(json.dumps(entry) + '\n')
     
-    print(f"\n✅ Generated {len(dataset)} test samples")
-    print(f"📁 Saved to {output_path}")
-    print(f"\nDataset statistics:")
-    print(f"  - Query types: {len(metadata['query_types'])}")
-    print(f"  - Complexity distribution:")
-    for level, count in metadata["complexity_distribution"].items():
-        print(f"    - {level}: {count} ({count/len(dataset)*100:.1f}%)")
-    
-    # Save separate metadata file
-    metadata_path = output_path.parent / f"{output_path.stem}_metadata.json"
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
-    print(f"📊 Metadata saved to {metadata_path}")
+    return dataset
 
 
 if __name__ == "__main__":
-    # CLI interface
-    app = typer.Typer(help="Generate synthetic test datasets for RAG evaluation")
+    # Example usage
+    products_path = Path("data/top_1000_products.jsonl")
+    reviews_path = Path("data/100_top_reviews_of_the_top_1000_products.jsonl")
+    output_path = Path("eval/datasets/realistic_test_500.jsonl")
     
-    @app.command()
-    def generate(
-        products_path: Annotated[Path, typer.Option(help="Path to products JSONL")] = Path("data/top_1000_products.jsonl"),
-        reviews_path: Annotated[Path, typer.Option(help="Path to reviews JSONL")] = Path("data/100_top_reviews_of_the_top_1000_products.jsonl"),
-        output_path: Annotated[Path, typer.Option(help="Output path for test dataset")] = Path("eval/datasets/synthetic_test_500.jsonl"),
-        num_samples: Annotated[int, typer.Option(help="Number of samples to generate")] = 500,
-        include_reference: Annotated[bool, typer.Option(help="Include reference answers")] = True,
-        seed: Annotated[int, typer.Option(help="Random seed")] = 42
-    ):
-        """Generate synthetic test dataset from documents."""
-        generate_testset_from_documents(
-            products_path,
-            reviews_path,
-            output_path,
-            num_samples,
-            include_reference,
-            seed
-        )
+    dataset = generate_realistic_testset(
+        products_path,
+        reviews_path,
+        output_path,
+        num_samples=500,
+        distribution="balanced"
+    )
     
-    app()
+    print(f"Generated {len(dataset)} realistic test queries")
+    print(f"Saved to {output_path}")

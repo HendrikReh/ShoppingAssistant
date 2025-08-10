@@ -19,3 +19,5 @@ wheels/
 /docs/EVAL_ISSUES_FIXED.md
 /diagnose_eval_issues.py
 /EVALUATIONS_ROADMAP.md
+/SYSTEM_STATUS.md
+/CLEANUP_LOG.md
