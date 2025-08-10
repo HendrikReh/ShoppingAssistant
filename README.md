@@ -118,15 +118,28 @@ uv run python -m app.cli chat \
 - **Visual Feedback**: Thinking indicators, progress bars, formatted outputs
 
 ### Evaluation
+
+#### Generate Synthetic Test Data (NEW!)
 ```bash
-# Evaluate search quality
+# Generate 500 diverse test samples
+uv run python -m app.cli generate-testset --num-samples 500
+
+# Generate with different complexity distributions
+uv run python -m app.cli generate-testset \
+  --num-samples 200 \
+  --distribution-preset complex  # Focus on multi-hop reasoning
+```
+
+#### Run Evaluations
+```bash
+# Evaluate search quality with synthetic data
 uv run python -m app.cli eval-search \
-  --dataset eval/datasets/search_eval.jsonl \
+  --dataset eval/datasets/synthetic_500_*.jsonl \
   --top-k 20 --variants bm25,vec,rrf,rrf_ce
 
 # Evaluate chat quality
 uv run python -m app.cli eval-chat \
-  --dataset eval/datasets/chat_eval.jsonl \
+  --dataset eval/datasets/synthetic_500_*.jsonl \
   --top-k 8 --max-samples 50
 ```
 

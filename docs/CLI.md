@@ -21,6 +21,7 @@ uv run python -m app.cli [COMMAND] --help
 | `search` | Search products using various strategies | Find products and reviews |
 | `chat` | Interactive Q&A with RAG | Get recommendations and answers |
 | `interactive` | Combined search and chat mode | Full shopping assistant experience |
+| `generate-testset` | Generate synthetic test datasets | Create diverse evaluation data |
 | `eval-search` | Evaluate search quality with metrics | Performance benchmarking |
 | `eval-chat` | Evaluate chat responses with RAGAS | Response quality assessment |
 
@@ -374,7 +375,56 @@ uv run python -m app.cli eval-search \
 
 ---
 
-### 6. `eval-chat` - Chat Evaluation
+### 6. `generate-testset` - Synthetic Test Data Generation
+
+Generate diverse test datasets for comprehensive evaluation.
+
+```bash
+uv run python -m app.cli generate-testset [OPTIONS]
+```
+
+**Options:**
+- `--num-samples INTEGER` (default: 500) - Number of test samples to generate
+- `--output-name TEXT` (default: "synthetic") - Output filename prefix
+- `--include-reference` (default: True) - Include reference answers
+- `--distribution-preset TEXT` (default: "balanced") - Query distribution:
+  - `balanced` - Equal distribution across all query types
+  - `simple` - Focus on single-hop factual queries (50%)
+  - `complex` - Focus on multi-hop reasoning (35%)
+  - `mixed` - Realistic distribution for production
+- `--seed INTEGER` (default: 42) - Random seed for reproducibility
+- `--products-path PATH` - Path to products JSONL
+- `--reviews-path PATH` - Path to reviews JSONL
+
+**Query Types:**
+- **single_hop_factual** - Simple lookups
+- **multi_hop_reasoning** - Cross-document analysis
+- **abstract_interpretive** - Interpretive questions
+- **comparative** - Product comparisons
+- **recommendation** - Personalized suggestions
+- **technical** - Specifications queries
+- **problem_solving** - Troubleshooting
+
+**Examples:**
+```bash
+# Generate 500 diverse test samples
+uv run python -m app.cli generate-testset --num-samples 500
+
+# Generate simple queries for quick testing
+uv run python -m app.cli generate-testset \
+    --num-samples 100 \
+    --distribution-preset simple
+
+# Generate complex queries for stress testing
+uv run python -m app.cli generate-testset \
+    --num-samples 200 \
+    --distribution-preset complex \
+    --output-name stress_test
+```
+
+---
+
+### 7. `eval-chat` - Chat Evaluation
 
 Evaluates chat response quality using RAGAS metrics for RAG systems.
 

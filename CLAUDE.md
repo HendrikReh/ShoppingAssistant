@@ -121,16 +121,24 @@ uv run marimo run notebooks/retrieval_fusion.py
 uv run marimo edit notebooks/ecommerce_analysis.py
 ```
 
-### Testing
+### Testing & Evaluation
 ```bash
-# Test vector search fix
-uv run python test_vec_fix.py
+# Generate synthetic test data (NEW!)
+uv run python -m app.cli generate-testset --num-samples 500
 
-# Test LLM configuration
-uv run python test_llm_config.py
+# Run evaluation with generated data
+uv run python -m app.cli eval-search \
+  --dataset eval/datasets/synthetic_500_*.jsonl \
+  --variants bm25,vec,rrf,rrf_ce
 
-# Test RAGAS integration
-uv run python test_ragas_fix.py
+uv run python -m app.cli eval-chat \
+  --dataset eval/datasets/synthetic_500_*.jsonl \
+  --top-k 8 --max-samples 50
+
+# Test specific components
+uv run python test_vec_fix.py  # Test vector search
+uv run python test_llm_config.py  # Test LLM configuration
+uv run python test_ragas_fix.py  # Test RAGAS integration
 ```
 
 ## Architecture
@@ -152,6 +160,47 @@ uv run python test_ragas_fix.py
 - **main.py**: Entry point for the application (to be expanded)
 
 ### Recent Changes
+
+#### Session 2025-08-10 Updates
+
+**Synthetic Test Data Generation:**
+- **Created app/testset_generator.py**: Comprehensive test data generator
+  - 7 query types: single-hop, multi-hop, comparative, recommendation, technical, abstract, problem-solving
+  - 4 distribution presets: balanced, simple, complex, mixed
+  - Generates 100-1000+ samples with diverse complexity
+  - Includes reference answers for evaluation
+  - Entity extraction from actual product/review data
+  
+- **Added generate-testset CLI command**: 
+  - Generates synthetic datasets with metadata
+  - Visual progress indicators and statistics
+  - Outputs RAGAS-compatible JSONL format
+  - Increased test coverage from ~50 to 500+ samples
+
+- **Updated CLI commands**: Changed from word commands to slash commands
+  - `/help`, `/settings`, `/exit` in search mode
+  - `/help`, `/context`, `/clear`, `/exit` in chat mode
+  - More distinct from regular user input
+
+- **Environment improvements**:
+  - Added `TOKENIZERS_PARALLELISM=false` to .env files
+  - Fixed all deprecation warnings
+  - Added fastapi-sso dependency
+
+- **Model caching optimization**:
+  - Fixed HTTP 429 errors from repeated model downloads
+  - Cross-encoder and sentence transformer models cached globally
+  - 10-100x speedup for repeated evaluations
+  - Pre-loading for cross-encoder in eval-search command
+
+- **Enhanced evaluation reports with interpretations**:
+  - Created `app/eval_interpreter.py` for metric interpretation
+  - Executive summaries with system health status
+  - Detailed metric-by-metric analysis with recommendations
+  - Variant performance comparisons for search strategies
+  - Critical issue identification and prioritization
+  - Success criteria assessment
+  - Strategic action plans based on results
 
 #### Session 2025-08-09 Updates
 

@@ -83,10 +83,16 @@ def _to_uuid_from_string(value: str) -> str:
     return str(uuid.UUID(hexdigest))
 
 
-def _load_st_model(model_name: str, device: str | None = None):
-    from sentence_transformers import SentenceTransformer
+# Global cache for sentence transformer models
+_st_model_cache = {}
 
-    return SentenceTransformer(model_name, device=device)
+def _load_st_model(model_name: str, device: str | None = None):
+    """Load or get cached sentence transformer model."""
+    cache_key = f"{model_name}_{device}"
+    if cache_key not in _st_model_cache:
+        from sentence_transformers import SentenceTransformer
+        _st_model_cache[cache_key] = SentenceTransformer(model_name, device=device)
+    return _st_model_cache[cache_key]
 
 
 def _device_str() -> str:
@@ -370,12 +376,21 @@ def _vector_search(client, collection: str, vector: list[float], top_k: int = 20
             return []
 
 
-def _cross_encoder_scores(model_name: str, device: str, query: str, candidates: list[tuple[str, str]]) -> list[tuple[str, float]]:
-    from sentence_transformers import CrossEncoder
+# Global cache for cross-encoder model
+_cross_encoder_cache = {}
 
+def _get_cross_encoder(model_name: str, device: str):
+    """Get or create cached cross-encoder model."""
+    cache_key = f"{model_name}_{device}"
+    if cache_key not in _cross_encoder_cache:
+        from sentence_transformers import CrossEncoder
+        _cross_encoder_cache[cache_key] = CrossEncoder(model_name, device=device)
+    return _cross_encoder_cache[cache_key]
+
+def _cross_encoder_scores(model_name: str, device: str, query: str, candidates: list[tuple[str, str]]) -> list[tuple[str, float]]:
     if not candidates:
         return []
-    ce = CrossEncoder(model_name, device=device)
+    ce = _get_cross_encoder(model_name, device)
     pairs = [(query, text) for _, text in candidates]
     scores = ce.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
     ranked = [(candidates[i][0], float(scores[i])) for i in range(len(candidates))]
@@ -793,6 +808,12 @@ def eval_search(
     typer.echo(f"- Variants: {', '.join(variant_list)}")
     typer.echo(f"- top_k={top_k} rrf_k={rrf_k} rerank_top_k={rerank_top_k}")
     typer.echo(f"- Device: {device}; Embed model: {EMBED_MODEL}")
+    
+    # Pre-load cross-encoder model if needed to avoid repeated downloads
+    if "rrf_ce" in variant_list:
+        typer.echo(f"Pre-loading cross-encoder model: {CROSS_ENCODER_MODEL}")
+        _get_cross_encoder(CROSS_ENCODER_MODEL, device)
+        typer.echo("✓ Cross-encoder model loaded and cached")
 
     def run_variant(q: str, variant: str) -> list[dict]:
         """Return list of payload dicts for top_k contexts under a variant."""
@@ -999,7 +1020,27 @@ def eval_search(
             f"- **Embed model**: `{EMBED_MODEL}`\n"
             f"- **Cross-encoder**: `{CROSS_ENCODER_MODEL}`\n"
         )
-        md = "# Search Evaluation Report\n\n" + md_config + "\n## Metrics\n" + _write_markdown_table(headers, rows_md) + "\n"
+        # Generate interpretation
+        from app.eval_interpreter import generate_search_interpretation
+        
+        interpretation_config = {
+            "dataset": str(dataset),
+            "max_samples": max_samples,
+            "top_k": top_k,
+            "rrf_k": rrf_k,
+            "rerank_top_k": rerank_top_k
+        }
+        
+        interpretation = generate_search_interpretation(aggregates, interpretation_config)
+        
+        md = (
+            "# Search Evaluation Report\n\n" + 
+            md_config + 
+            "\n## Metrics\n" + 
+            _write_markdown_table(headers, rows_md) + 
+            "\n\n---\n\n" +
+            interpretation
+        )
         out_md.write_text(md)
         mlflow.log_artifact(str(out_md))
 
@@ -1188,13 +1229,223 @@ def eval_chat(
             f"- **Eval LLM**: `{llm_config.eval_model}`\n\n"
         )
         
-        md = "# Chat Evaluation Report\n\n" + md_params + "## Metrics\n" + _write_markdown_table(["metric", "score"], [[k, f"{v:.4f}"] for k, v in scores.items()]) + "\n"
+        # Generate interpretation
+        from app.eval_interpreter import generate_chat_interpretation
+        
+        interpretation_config = {
+            "dataset": str(dataset),
+            "max_samples": max_samples,
+            "top_k": top_k,
+            "model": llm_config.chat_model
+        }
+        
+        interpretation = generate_chat_interpretation(scores, interpretation_config)
+        
+        md = (
+            "# Chat Evaluation Report\n\n" + 
+            md_params + 
+            "## Metrics\n" + 
+            _write_markdown_table(["metric", "score"], [[k, f"{v:.4f}"] for k, v in scores.items()]) + 
+            "\n\n---\n\n" +
+            interpretation
+        )
         out_md.write_text(md)
         mlflow.log_artifact(str(out_md))
 
     typer.secho(f"\n✅ Evaluation Complete!", fg=typer.colors.GREEN, bold=True)
     typer.secho(f"  💾 JSON: {out_json}", fg=typer.colors.WHITE)
     typer.secho(f"  📄 Report: {out_md}", fg=typer.colors.WHITE)
+
+
+@app.command("generate-testset")
+def generate_testset(
+    num_samples: int = typer.Option(500, help="Number of test samples to generate"),
+    output_name: str = typer.Option("synthetic", help="Output filename prefix"),
+    include_reference: bool = typer.Option(True, help="Include reference answers"),
+    distribution_preset: str = typer.Option("balanced", help="Query distribution: balanced, simple, complex, mixed"),
+    seed: int = typer.Option(42, help="Random seed for reproducibility"),
+    products_path: Path = typer.Option(DATA_PRODUCTS, exists=True),
+    reviews_path: Path = typer.Option(DATA_REVIEWS, exists=True),
+) -> None:
+    """Generate synthetic test dataset with diverse query types.
+    
+    Creates test data with various query complexities:
+    - Single-hop factual queries (simple lookups)
+    - Multi-hop reasoning (cross-document analysis)
+    - Comparative queries (product comparisons)
+    - Recommendations (personalized suggestions)
+    - Technical queries (specifications)
+    - Problem-solving (troubleshooting)
+    """
+    from app.testset_generator import EcommerceQueryGenerator
+    
+    typer.secho("\n🧪 Synthetic Test Data Generation", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"  Target samples: {num_samples}", fg=typer.colors.WHITE)
+    typer.secho(f"  Distribution: {distribution_preset}", fg=typer.colors.WHITE)
+    typer.secho(f"  Include references: {include_reference}", fg=typer.colors.WHITE)
+    typer.secho(f"  Random seed: {seed}\n", fg=typer.colors.WHITE)
+    
+    # Load documents
+    typer.secho("📚 Loading source documents...", fg=typer.colors.BLUE)
+    products = _read_jsonl(products_path)
+    reviews = _read_jsonl(reviews_path)
+    typer.secho(f"  ✓ Loaded {len(products)} products", fg=typer.colors.GREEN)
+    typer.secho(f"  ✓ Loaded {len(reviews)} reviews\n", fg=typer.colors.GREEN)
+    
+    # Initialize generator
+    generator = EcommerceQueryGenerator(products, reviews, seed)
+    
+    # Define distribution presets
+    distributions = {
+        "balanced": {
+            "single_hop_factual": 0.25,
+            "multi_hop_reasoning": 0.20,
+            "abstract_interpretive": 0.10,
+            "comparative": 0.15,
+            "recommendation": 0.15,
+            "technical": 0.10,
+            "problem_solving": 0.05
+        },
+        "simple": {
+            "single_hop_factual": 0.50,
+            "technical": 0.25,
+            "comparative": 0.15,
+            "recommendation": 0.10,
+            "multi_hop_reasoning": 0.0,
+            "abstract_interpretive": 0.0,
+            "problem_solving": 0.0
+        },
+        "complex": {
+            "single_hop_factual": 0.10,
+            "multi_hop_reasoning": 0.35,
+            "abstract_interpretive": 0.20,
+            "comparative": 0.10,
+            "recommendation": 0.10,
+            "technical": 0.05,
+            "problem_solving": 0.10
+        },
+        "mixed": {
+            "single_hop_factual": 0.30,
+            "multi_hop_reasoning": 0.25,
+            "comparative": 0.20,
+            "recommendation": 0.15,
+            "technical": 0.05,
+            "abstract_interpretive": 0.03,
+            "problem_solving": 0.02
+        }
+    }
+    
+    distribution = distributions.get(distribution_preset, distributions["balanced"])
+    
+    # Show distribution
+    typer.secho("📊 Query Type Distribution:", fg=typer.colors.YELLOW)
+    for query_type, weight in distribution.items():
+        count = int(num_samples * weight)
+        bar_length = int(weight * 40)
+        bar = "█" * bar_length + "░" * (40 - bar_length)
+        typer.secho(
+            f"  {query_type:25} {bar} {count:4} ({weight*100:5.1f}%)",
+            fg=typer.colors.WHITE
+        )
+    
+    # Generate dataset
+    typer.secho(f"\n⚙️  Generating {num_samples} test samples...", fg=typer.colors.BLUE)
+    
+    if include_reference:
+        dataset = generator.generate_with_reference_answers(num_samples)
+    else:
+        dataset = generator.generate_dataset(num_samples, distribution)
+    
+    # Analyze generated dataset
+    complexity_stats = {"simple": 0, "moderate": 0, "complex": 0}
+    query_type_stats = {}
+    
+    for sample in dataset:
+        complexity = sample["metadata"]["complexity"]
+        complexity_stats[complexity] += 1
+        
+        query_type = sample["metadata"]["query_type"]
+        query_type_stats[query_type] = query_type_stats.get(query_type, 0) + 1
+    
+    # Save dataset
+    results_dir, datasets_dir = _ensure_dirs()
+    timestamp = _get_timestamp()
+    output_path = datasets_dir / f"{output_name}_{num_samples}_{timestamp}.jsonl"
+    
+    with open(output_path, 'w') as f:
+        # Write metadata as first line
+        metadata = {
+            "_metadata": {
+                "total_samples": len(dataset),
+                "generation_seed": seed,
+                "distribution_preset": distribution_preset,
+                "distribution": distribution,
+                "complexity_distribution": complexity_stats,
+                "query_type_distribution": query_type_stats,
+                "timestamp": timestamp,
+                "include_reference": include_reference
+            }
+        }
+        f.write(json.dumps(metadata) + "\n")
+        
+        # Write samples
+        for sample in dataset:
+            output_sample = {
+                "question": sample["query"],
+                "query": sample["query"],
+                "query_id": sample["query_id"],
+                "metadata": sample["metadata"]
+            }
+            
+            if "reference_answer" in sample:
+                output_sample["reference_answer"] = sample["reference_answer"]
+                output_sample["ground_truth"] = sample["reference_answer"]
+            
+            if "expected_context_type" in sample:
+                output_sample["expected_context_type"] = sample["expected_context_type"]
+            
+            f.write(json.dumps(output_sample) + "\n")
+    
+    # Display results
+    typer.secho(f"\n✅ Successfully generated {len(dataset)} test samples!", fg=typer.colors.GREEN, bold=True)
+    typer.secho(f"  💾 Saved to: {output_path}", fg=typer.colors.WHITE)
+    
+    typer.secho(f"\n📈 Dataset Statistics:", fg=typer.colors.CYAN, bold=True)
+    typer.secho("  Complexity Distribution:", fg=typer.colors.YELLOW)
+    for level in ["simple", "moderate", "complex"]:
+        count = complexity_stats[level]
+        pct = count / len(dataset) * 100
+        typer.secho(f"    {level:10} {count:4} ({pct:5.1f}%)", fg=typer.colors.WHITE)
+    
+    typer.secho("\n  Query Types Generated:", fg=typer.colors.YELLOW)
+    for qtype, count in sorted(query_type_stats.items(), key=lambda x: x[1], reverse=True):
+        pct = count / len(dataset) * 100
+        typer.secho(f"    {qtype:25} {count:4} ({pct:5.1f}%)", fg=typer.colors.WHITE)
+    
+    # Save metadata separately
+    metadata_path = datasets_dir / f"{output_name}_{num_samples}_{timestamp}_metadata.json"
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata["_metadata"], f, indent=2)
+    typer.secho(f"\n  📊 Metadata: {metadata_path}", fg=typer.colors.WHITE)
+    
+    # Show sample queries
+    typer.secho("\n📝 Sample Generated Queries:", fg=typer.colors.CYAN, bold=True)
+    for i, sample in enumerate(dataset[:5], 1):
+        query_type = sample["metadata"]["query_type"]
+        complexity = sample["metadata"]["complexity"]
+        typer.secho(
+            f"  {i}. [{complexity:8}] {sample['query'][:80]}...",
+            fg=typer.colors.WHITE
+        )
+        typer.secho(
+            f"     Type: {query_type}",
+            fg=typer.colors.BRIGHT_BLACK
+        )
+    
+    typer.secho(f"\n💡 Next steps:", fg=typer.colors.YELLOW)
+    typer.secho(f"  1. Run evaluation: python -m app.cli eval-search --dataset {output_path}", fg=typer.colors.WHITE)
+    typer.secho(f"  2. Run chat eval: python -m app.cli eval-chat --dataset {output_path}", fg=typer.colors.WHITE)
+
 
 if __name__ == "__main__":
     # Allow both `python app/cli.py` and `python -m app.cli`
