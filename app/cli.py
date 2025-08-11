@@ -740,7 +740,20 @@ def interactive() -> None:
         # Initialize components on first use
         initialize_components()
         
+        # Clean up common search prefixes that users might type
         query = user_input
+        search_prefixes = ['search for ', 'find ', 'show me ', 'look for ', 'find me ']
+        query_lower = query.lower()
+        for prefix in search_prefixes:
+            if query_lower.startswith(prefix):
+                query = query[len(prefix):]
+                break
+        
+        # Remove "products only" or similar suffixes
+        products_only = False
+        if ', products only' in query.lower() or ' products only' in query.lower():
+            products_only = True
+            query = query.replace(', products only', '').replace(' products only', '')
         
         # Auto-detect mode based on query content
         if is_search_query(query):
