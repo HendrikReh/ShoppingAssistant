@@ -420,6 +420,8 @@ def search(
   rrf_k: int = typer.Option(60, help="RRF k"),
   rerank: bool = typer.Option(True, help="Use cross-encoder rerank"),
   rerank_top_k: int = typer.Option(30, help="Top-K to rerank after fusion"),
+  enable_web: bool = typer.Option(False, "--web/--no-web", help="Enable web search enhancement"),
+  web_only: bool = typer.Option(False, help="Use only web search (no local)"),
 ) -> None:
   """Hybrid retrieval (BM25 + vectors) with optional cross-encoder rerank."""
 
@@ -430,8 +432,106 @@ def search(
   # Load data once for the session
   bm25_prod, bm25_rev, id_to_product, id_to_review = _bm25_from_files(products_path, reviews_path)
   
+  # Initialize web search if enabled
+  web_agent = None
+  orchestrator = None
+  if enable_web or web_only:
+    import os
+    from app.web_search_agent import TavilyWebSearchAgent, WebSearchConfig, WebSearchCache
+    from app.hybrid_retrieval_orchestrator import HybridRetrievalOrchestrator
+    import redis
+    
+    tavily_key = os.getenv("TAVILY_API_KEY")
+    if not tavily_key:
+      typer.secho("Error: TAVILY_API_KEY not found in environment", fg=typer.colors.RED)
+      raise typer.Exit(1)
+    
+    # Set up web search with caching
+    try:
+      redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+      redis_client.ping()
+      cache = WebSearchCache(redis_client)
+      typer.secho("Web search cache enabled (Redis)", fg=typer.colors.GREEN, dim=True)
+    except:
+      cache = None
+      typer.secho("Web search cache disabled (Redis not available)", fg=typer.colors.YELLOW, dim=True)
+    
+    config = WebSearchConfig(api_key=tavily_key, enable_web_search=True)
+    web_agent = TavilyWebSearchAgent(config, cache)
+    
+    # Create orchestrator for hybrid retrieval
+    orchestrator = HybridRetrievalOrchestrator(
+      st_model=st_model,
+      qdrant_client=client,
+      bm25_products=bm25_prod,
+      bm25_reviews=bm25_rev,
+      web_search_agent=web_agent,
+      enable_web_search=True
+    )
+    
+    if web_only:
+      typer.secho("Web-only search mode enabled", fg=typer.colors.CYAN)
+  
   def perform_search(search_query: str) -> None:
     """Execute a single search."""
+    
+    # Use orchestrator if web search is enabled
+    if orchestrator and (enable_web or web_only):
+      from app.hybrid_retrieval_orchestrator import HybridResult
+      
+      # Use orchestrator for hybrid retrieval
+      results = orchestrator.retrieve(
+        query=search_query,
+        top_k=top_k,
+        force_web=web_only
+      )
+      
+      # Display orchestrated results
+      typer.secho(f"\nSearch Results for: '{search_query}'", fg=typer.colors.CYAN, bold=True)
+      
+      # Count sources
+      web_count = sum(1 for r in results if r.is_web)
+      local_count = len(results) - web_count
+      
+      source_info = []
+      if local_count > 0:
+        source_info.append(f"{local_count} local")
+      if web_count > 0:
+        source_info.append(f"{web_count} web")
+      
+      typer.secho(f"Found {len(results)} results ({', '.join(source_info)})\n", fg=typer.colors.WHITE)
+      
+      for idx, result in enumerate(results[:20], 1):
+        # Determine type and source indicator
+        type_str = "[PRODUCT]" if result.is_product else "[REVIEW]" if result.is_review else "[WEB]"
+        source_indicator = " " if not result.is_web else ""
+        
+        # Color based on relevance
+        if result.score > 0.8:
+          color = typer.colors.GREEN
+        elif result.score > 0.5:
+          color = typer.colors.YELLOW
+        else:
+          color = typer.colors.WHITE
+        
+        typer.secho(f"{idx:2}. {type_str}{source_indicator} {result.title[:80]}", fg=color, bold=True)
+        
+        # Show metadata
+        if result.url:
+          typer.secho(f"    URL: {result.url}", fg=typer.colors.BRIGHT_BLACK)
+        if result.metadata.get("domain"):
+          typer.secho(f"    Source: {result.metadata['domain']}", fg=typer.colors.BRIGHT_BLACK)
+        
+        typer.secho(f"    Score: {result.score:.3f}", fg=typer.colors.BRIGHT_BLACK)
+        
+        # Show snippet of content
+        content_preview = result.content[:150] + "..." if len(result.content) > 150 else result.content
+        typer.secho(f"    {content_preview}", fg=typer.colors.WHITE, dim=True)
+        typer.echo()
+      
+      return
+    
+    # Original local-only search logic
     q_tokens = _tokenize(search_query)
     bm25_prod_scores = bm25_prod.get_scores(q_tokens)
     bm25_rev_scores = bm25_rev.get_scores(q_tokens)
@@ -1967,6 +2067,89 @@ def generate_testset(
   typer.secho(f"\n Next steps:", fg=typer.colors.YELLOW)
   typer.secho(f" 1. Run evaluation: python -m app.cli eval-search --dataset {output_path}", fg=typer.colors.WHITE)
   typer.secho(f" 2. Run chat eval: python -m app.cli eval-chat --dataset {output_path}", fg=typer.colors.WHITE)
+
+
+@app.command()
+def check_price(
+  product_name: str = typer.Argument(..., help="Product name to check price for"),
+  show_history: bool = typer.Option(False, help="Show price history if available"),
+) -> None:
+  """Check current price and availability for a product using web search."""
+  import os
+  from app.web_search_agent import TavilyWebSearchAgent, WebSearchConfig, WebSearchCache
+  import redis
+  
+  tavily_key = os.getenv("TAVILY_API_KEY")
+  if not tavily_key:
+    typer.secho("Error: TAVILY_API_KEY not found in environment", fg=typer.colors.RED)
+    raise typer.Exit(1)
+  
+  # Set up web search with caching
+  try:
+    redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    redis_client.ping()
+    cache = WebSearchCache(redis_client, default_ttl=3600)  # 1 hour for prices
+  except:
+    cache = None
+  
+  config = WebSearchConfig(api_key=tavily_key)
+  agent = TavilyWebSearchAgent(config, cache)
+  
+  typer.secho(f"\nChecking prices for: {product_name}", fg=typer.colors.CYAN, bold=True)
+  
+  # Get product information
+  info = agent.search_product_info(product_name, info_type="price")
+  
+  if info.get("prices"):
+    typer.secho("\nCurrent Prices:", fg=typer.colors.GREEN, bold=True)
+    for price_info in info["prices"][:5]:
+      typer.secho(f"  {price_info['price']} - {price_info['source']}", fg=typer.colors.WHITE)
+      typer.secho(f"    {price_info['url']}", fg=typer.colors.BRIGHT_BLACK)
+      typer.secho(f"    Checked: {price_info['date']}", fg=typer.colors.BRIGHT_BLACK)
+  else:
+    typer.secho("No price information found", fg=typer.colors.YELLOW)
+  
+  # Also check availability
+  info_avail = agent.search_product_info(product_name, info_type="availability")
+  
+  if info_avail.get("availability"):
+    typer.secho("\nAvailability:", fg=typer.colors.GREEN, bold=True)
+    for avail in info_avail["availability"][:5]:
+      status_color = typer.colors.GREEN if avail['status'] == 'in_stock' else typer.colors.RED
+      typer.secho(f"  {avail['retailer']}: {avail['status']}", fg=status_color)
+
+
+@app.command()
+def find_alternatives(
+  product_name: str = typer.Argument(..., help="Product to find alternatives for"),
+  max_results: int = typer.Option(5, help="Maximum alternatives to show"),
+) -> None:
+  """Find alternative products using web search."""
+  import os
+  from app.web_search_agent import TavilyWebSearchAgent, WebSearchConfig
+  
+  tavily_key = os.getenv("TAVILY_API_KEY")
+  if not tavily_key:
+    typer.secho("Error: TAVILY_API_KEY not found in environment", fg=typer.colors.RED)
+    raise typer.Exit(1)
+  
+  config = WebSearchConfig(api_key=tavily_key)
+  agent = TavilyWebSearchAgent(config)
+  
+  typer.secho(f"\nFinding alternatives to: {product_name}", fg=typer.colors.CYAN, bold=True)
+  
+  alternatives = agent.search_alternatives(product_name, max_alternatives=max_results)
+  
+  if alternatives:
+    typer.secho(f"\nFound {len(alternatives)} alternatives:\n", fg=typer.colors.GREEN)
+    for idx, alt in enumerate(alternatives, 1):
+      typer.secho(f"{idx}. {alt['name']}", fg=typer.colors.WHITE, bold=True)
+      typer.secho(f"   Why: {alt['reason']}", fg=typer.colors.YELLOW)
+      typer.secho(f"   Source: {alt['source']}", fg=typer.colors.BRIGHT_BLACK)
+      typer.secho(f"   {alt['url']}", fg=typer.colors.BRIGHT_BLACK)
+      typer.echo()
+  else:
+    typer.secho("No alternatives found", fg=typer.colors.YELLOW)
 
 
 if __name__ == "__main__":

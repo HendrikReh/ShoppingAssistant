@@ -21,6 +21,8 @@ uv run python -m app.cli [COMMAND] --help
 | `search` | Search products using various strategies | Find products and reviews |
 | `chat` | Interactive Q&A with RAG | Get recommendations and answers |
 | `interactive` | Combined search and chat mode | Full shopping assistant experience |
+| `check-price` | Get real-time prices via web search | Current pricing and availability |
+| `find-alternatives` | Find alternative products via web | Product alternatives and comparisons |
 | `generate-testset` | Generate realistic test datasets (V2) | Create catalog-based evaluation data |
 | `eval-search` | Evaluate search quality with metrics | Performance benchmarking |
 | `eval-chat` | Evaluate chat responses with RAGAS | Response quality assessment |
@@ -101,6 +103,8 @@ uv run python -m app.cli search [OPTIONS]
 | `--rrf-k` | int | 60 | RRF fusion parameter (higher = more weight to top results) |
 | `--rerank` | bool | False | Enable cross-encoder reranking |
 | `--rerank-top-k` | int | 30 | Number of candidates to rerank |
+| `--web/--no-web` | bool | False | Enable web search enhancement via Tavily |
+| `--web-only` | bool | False | Use only web search (no local data) |
 | `--device` | str | auto-detect | Device for embeddings and reranking |
 
 #### Retrieval Strategies
@@ -121,6 +125,12 @@ uv run python -m app.cli search [OPTIONS]
    - Model: `cross-encoder/ms-marco-MiniLM-L-12-v2`
    - Significantly improves relevance
 
+5. **Web Search** (NEW): Real-time search via Tavily API
+   - Current prices and availability
+   - Latest reviews and comparisons
+   - Products not in local dataset
+   - Intelligent routing based on query intent
+
 #### Example Usage
 
 ```bash
@@ -140,6 +150,17 @@ uv run python -m app.cli search \
 uv run python -m app.cli search \
   --query "gaming mouse" \
   --top-k 20 \
+  --rerank
+
+# Web-enhanced search (combines local + web)
+uv run python -m app.cli search \
+  --query "latest macbook prices" \
+  --web
+
+# Web-only search for real-time info
+uv run python -m app.cli search \
+  --query "rtx 4090 availability" \
+  --web-only
   --rerank \
   --rerank-top-k 40
 
@@ -294,9 +315,120 @@ Choice (1/2/3): 3
 
 ---
 
-### 5. `eval-search` - Search Evaluation
+### 5. `check-price` - Real-Time Price Check
 
-Evaluates search quality using RAGAS metrics across different retrieval variants.
+Get current prices and availability for a product using web search.
+
+```bash
+uv run python -m app.cli check-price PRODUCT_NAME [OPTIONS]
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `product_name` | str | Required | Product name to check |
+| `--show-history` | bool | False | Show price history if available |
+
+#### Features
+
+- **Real-time pricing**: Current prices from major retailers
+- **Availability status**: Stock information across stores
+- **Cached results**: Redis caching for performance (1-hour TTL)
+- **Multiple sources**: Aggregates data from trusted retailers
+
+#### Example Usage
+
+```bash
+# Check current price for a product
+uv run python -m app.cli check-price "Fire TV Stick 4K"
+
+# Check with history (if available)
+uv run python -m app.cli check-price "Echo Dot" --show-history
+```
+
+#### Output Example
+
+```
+Checking prices for: Fire TV Stick 4K
+
+Current Prices:
+  $49.99 - amazon.com
+    https://amazon.com/dp/B08XVYZ1Y5
+    Checked: 2025-08-11T10:30:00
+
+  $54.99 - bestbuy.com
+    https://bestbuy.com/fire-tv-stick-4k
+    Checked: 2025-08-11T10:30:00
+
+Availability:
+  amazon.com: in_stock
+  bestbuy.com: in_stock
+  walmart.com: out_of_stock
+```
+
+---
+
+### 6. `find-alternatives` - Find Alternative Products
+
+Discover alternative products with comparisons and recommendations.
+
+```bash
+uv run python -m app.cli find-alternatives PRODUCT_NAME [OPTIONS]
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `product_name` | str | Required | Product to find alternatives for |
+| `--max-results` | int | 5 | Maximum number of alternatives |
+
+#### Features
+
+- **Smart alternatives**: Finds similar products with better features or prices
+- **Comparison reasons**: Explains why each alternative is suggested
+- **Review aggregation**: Includes professional review summaries
+- **Source attribution**: Links to comparison articles and reviews
+
+#### Example Usage
+
+```bash
+# Find alternatives to a product
+uv run python -m app.cli find-alternatives "Apple AirPods Pro"
+
+# Get more alternatives
+uv run python -m app.cli find-alternatives "Bose QuietComfort" --max-results 10
+```
+
+#### Output Example
+
+```
+Finding alternatives to: Apple AirPods Pro
+
+Found 5 alternatives:
+
+1. Sony WF-1000XM4
+   Why: Better noise cancellation and longer battery life than AirPods Pro
+   Source: techradar.com
+   https://techradar.com/sony-wf-1000xm4-review
+
+2. Bose QuietComfort Earbuds
+   Why: Superior comfort and comparable ANC at similar price point
+   Source: cnet.com
+   https://cnet.com/bose-qc-earbuds-review
+
+3. Samsung Galaxy Buds2 Pro
+   Why: Great alternative for Android users with similar features
+   Source: rtings.com
+   https://rtings.com/samsung-galaxy-buds2-pro
+```
+
+---
+
+### 7. `eval-search` - Search Evaluation
+
+Evaluates search quality using metrics across different retrieval variants.
 
 ```bash
 uv run python -m app.cli eval-search [OPTIONS]
@@ -378,7 +510,7 @@ uv run python -m app.cli eval-search \
 
 ---
 
-### 6. `generate-testset` - Realistic Test Data Generation
+### 8. `generate-testset` - Realistic Test Data Generation
 
 Generate realistic test datasets based on actual product catalog for comprehensive evaluation.
 
@@ -441,7 +573,7 @@ uv run python -m app.cli generate-testset \
 
 ---
 
-### 7. `eval-chat` - Chat Evaluation
+### 9. `eval-chat` - Chat Evaluation
 
 Evaluates chat response quality using RAGAS metrics for RAG systems.
 

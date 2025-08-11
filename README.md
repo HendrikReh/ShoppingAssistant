@@ -7,18 +7,23 @@ An advanced e-commerce search and recommendation system that combines data analy
 - **Semantic Search**: Vector search using Qdrant with all-MiniLM-L6-v2 embeddings (384-dim)
 - **Hybrid Retrieval**: Combines BM25 keyword search with semantic search using Reciprocal Rank Fusion (RRF)
 - **Cross-encoder Reranking**: Uses ms-marco-MiniLM-L-12-v2 for improved result reranking
+- **Web Search Integration** (NEW): Real-time product information via Tavily API
+  - Current prices and availability across major retailers
+  - Latest professional reviews and comparisons
+  - Alternative product suggestions
+  - Intelligent query routing (local vs web based on intent)
+  - Redis caching for performance
 - **Unified Interactive Mode**: Natural language interface that automatically detects search vs chat intent
-  - 🔍 **Automatic Search**: Type product names to search
-  - 💬 **Automatic Chat**: Ask questions for recommendations
-  - 🛍️ **No Mode Selection**: System intelligently routes queries
-- **Visual CLI**: Colored outputs, emojis, and progress indicators for better UX
+  - **Automatic Search**: Type product names to search
+  - **Automatic Chat**: Ask questions for recommendations
+  - **No Mode Selection**: System intelligently routes queries
+- **Visual CLI**: Colored outputs and progress indicators for better UX
 - **Interactive Analysis**: Marimo notebooks for data exploration and visualization
 - **Command-Line Interface**: Typer-based CLI for all core functionality
 - **Evaluation Framework**: RAGAS metrics for search and chat quality assessment
 - **Flexible LLM Configuration**: Centralized config supporting OpenAI and LiteLLM proxy
 - **Caching Layer**: Redis for performance optimization with LRU eviction
 - **ML Tracking**: MLflow for experiment tracking and model management
-- **Web Integration**: Tavily for external web search capabilities
 
 ## Quick Start
 
@@ -109,6 +114,26 @@ uv run python -m app.cli search
 uv run python -m app.cli search \
   --query "wireless earbuds" \
   --top-k 20 --rrf-k 60 --rerank
+
+# Web-enhanced search (combines local + web results)
+uv run python -m app.cli search \
+  --query "latest macbook pro prices" \
+  --web
+
+# Web-only search (no local data)
+uv run python -m app.cli search \
+  --query "rtx 4090 availability" \
+  --web-only
+```
+
+### Web Search Commands (NEW)
+```bash
+# Check current prices and availability
+uv run python -m app.cli check-price "Fire TV Stick 4K"
+
+# Find alternative products
+uv run python -m app.cli find-alternatives "Apple AirPods Pro" \
+  --max-results 5
 ```
 
 ### Chat

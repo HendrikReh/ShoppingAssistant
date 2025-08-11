@@ -13,14 +13,38 @@ The initial evaluation showed poor context relevance at 40.6%, indicating the re
 
 ## Implemented Solutions
 
-### 1. Query Expansion and Preprocessing (`app/search_improvements.py`)
+### 1. Tavily Web Search Integration (NEW)
+
+The most significant improvement is the addition of real-time web search capabilities through Tavily API integration:
+
+#### Web Search Agent (`app/web_search_agent.py`)
+- **Real-time pricing**: Current prices from major retailers
+- **Availability checking**: Stock status across stores
+- **Latest reviews**: Professional reviews and comparisons
+- **Alternative products**: Smart product recommendations
+- **Redis caching**: Performance optimization with configurable TTLs
+
+#### Hybrid Retrieval Orchestrator (`app/hybrid_retrieval_orchestrator.py`)
+- **Intelligent query routing**: Automatically determines when web search is beneficial
+- **Query intent analysis**: Detects price, availability, comparison, and temporal queries
+- **Result fusion**: Seamlessly merges local and web results
+- **Diversity enforcement**: Ensures mix of local and web sources
+
+#### When Web Search Triggers
+1. **Low local relevance**: When local search scores < 0.3
+2. **Price queries**: "price", "cost", "deal", "discount"
+3. **Availability queries**: "stock", "where to buy", "available"
+4. **Temporal queries**: "latest", "newest", "2024", "2025"
+5. **Comparison queries**: "vs", "versus", "alternative", "better than"
+
+### 2. Query Expansion and Preprocessing (`app/search_improvements.py`)
 
 - **Synonym expansion**: Maps common terms to variations (e.g., "laptop" → ["notebook", "computer"])
 - **Brand recognition**: Identifies and expands brand names
 - **Keyword extraction**: Removes stop words and creates bigrams
 - **Query type classification**: Identifies comparative, recommendation, technical queries
 
-### 2. Optimized Retrieval Parameters
+### 3. Optimized Retrieval Parameters
 
 ```python
 IMPROVED_SEARCH_CONFIG = {
@@ -32,16 +56,38 @@ IMPROVED_SEARCH_CONFIG = {
 }
 ```
 
-### 3. Fallback Search Strategies
+### 4. Fallback Search Strategies
 
 When initial retrieval scores are low (<0.3):
-1. **Entity-focused search**: Use extracted product/brand entities
-2. **Keyword-only search**: Fall back to top 5 keywords if entity search fails
+1. **Web search activation**: Automatically query Tavily for web results
+2. **Entity-focused search**: Use extracted product/brand entities
+3. **Keyword-only search**: Fall back to top 5 keywords if entity search fails
 
-### 4. Enhanced CLI Integration
+### 5. Enhanced CLI Integration
 
-Added `--enhanced` flag to `eval-search` command:
+Added web search capabilities to CLI:
+
+#### Search Command Enhancements
 ```bash
+# Enable web search with --web flag
+uv run python -m app.cli search --query "latest prices" --web
+
+# Web-only search with --web-only flag
+uv run python -m app.cli search --query "rtx 4090 stock" --web-only
+```
+
+#### New Web Search Commands
+```bash
+# Check real-time prices
+uv run python -m app.cli check-price "Fire TV Stick 4K"
+
+# Find product alternatives
+uv run python -m app.cli find-alternatives "Apple AirPods Pro"
+```
+
+#### Enhanced Evaluation
+```bash
+# Evaluate with enhanced retrieval
 uv run python -m app.cli eval-search \
     --dataset eval/datasets/synthetic.jsonl \
     --enhanced \
@@ -49,6 +95,24 @@ uv run python -m app.cli eval-search \
 ```
 
 ## Key Components
+
+### TavilyWebSearchAgent Class (`app/web_search_agent.py`)
+- Tavily API integration with caching
+- Specialized search methods (prices, availability, reviews)
+- Domain filtering for quality control
+- Result parsing and extraction utilities
+
+### HybridRetrievalOrchestrator Class (`app/hybrid_retrieval_orchestrator.py`)
+- Intelligent query routing between local and web
+- Query intent analysis
+- Result fusion and deduplication
+- Diversity enforcement in results
+
+### QueryIntentAnalyzer Class
+- Detects when web search is beneficial
+- Analyzes query types (price, availability, comparison)
+- Evaluates local result quality
+- Makes routing decisions
 
 ### QueryPreprocessor Class
 - Handles synonym expansion (50+ product terms)
@@ -69,12 +133,38 @@ uv run python -m app.cli eval-search \
 ## Expected Improvements
 
 Based on the optimizations:
-- **Context Relevance**: Expected to improve from 40.6% to 65-75%
+- **Coverage**: From ~70% (local only) to 95%+ (with web search)
+- **Context Relevance**: Expected to improve from 40.6% to 80-90%
+- **Real-time Information**: Access to current prices, stock, and reviews
+- **Product Discovery**: Find products beyond the 1000-item local dataset
 - **Retrieval Recall**: Doubled potential candidates (top_k 20→40)
 - **Query Understanding**: Better handling of variations and synonyms
-- **Robustness**: Fallback strategies prevent complete failures
+- **Robustness**: Web search fallback for low-relevance queries
 
 ## Usage Examples
+
+### Web-Enhanced Search
+```python
+from app.web_search_agent import TavilyWebSearchAgent, WebSearchConfig
+from app.hybrid_retrieval_orchestrator import HybridRetrievalOrchestrator
+
+# Configure web search
+config = WebSearchConfig(api_key="your-tavily-key")
+web_agent = TavilyWebSearchAgent(config)
+
+# Create orchestrator
+orchestrator = HybridRetrievalOrchestrator(
+    web_search_agent=web_agent,
+    enable_web_search=True
+)
+
+# Retrieve with intelligent routing
+results = orchestrator.retrieve(
+    query="fire tv stick latest price",
+    top_k=20
+)
+# Automatically uses web search for price query
+```
 
 ### Basic Enhanced Search
 ```python
@@ -116,6 +206,9 @@ Type: "recommendation"
 3. **Multi-stage reranking**: Progressive filtering
 4. **Query rewriting with LLM**: More sophisticated understanding
 5. **Personalization**: User-specific retrieval parameters
+6. **Price tracking history**: Store and track price changes over time
+7. **Multi-marketplace aggregation**: Expand beyond current retailer list
+8. **Review sentiment analysis**: Deeper analysis of web-sourced reviews
 
 ## Testing
 

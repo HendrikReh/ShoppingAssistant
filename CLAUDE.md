@@ -189,6 +189,36 @@ uv run pytest tests/test_vector_search.py  # Test vector search
 
 ### Recent Changes
 
+#### Session 2025-08-11 Updates (Part 2)
+
+**Tavily Web Search Integration:**
+- **Created web_search_agent.py**: Full Tavily API integration with caching
+  - TavilyWebSearchAgent for real-time product information
+  - WebSearchCache using Redis with configurable TTLs
+  - Specialized search methods for prices, availability, reviews, alternatives
+  - Domain filtering for trusted retailers and review sites
+
+- **Implemented hybrid_retrieval_orchestrator.py**: Intelligent query routing
+  - QueryIntentAnalyzer detects when web search is needed
+  - Automatic routing based on query type (price, availability, comparison, latest)
+  - Falls back to web when local relevance is low (<0.3)
+  - Result fusion strategy merging local and web sources
+  - Diversity enforcement in final results
+
+- **Enhanced CLI with Web Search**:
+  - Added `--web` flag for hybrid local+web search
+  - Added `--web-only` flag for pure web search
+  - New `check-price` command for real-time pricing
+  - New `find-alternatives` command for product alternatives
+  - Visual indicators distinguishing web vs local results
+  - Automatic Redis cache detection and usage
+
+- **Performance Optimizations**:
+  - 2-hour cache TTL for prices, 24-hour for reviews
+  - Parallel search execution when using multiple sources
+  - Domain whitelisting for quality control
+  - Smart deduplication of similar results
+
 #### Session 2025-08-11 Updates
 
 **Improved Product Search:**
@@ -437,6 +467,25 @@ The project uses a centralized LLM configuration in `app/llm_config.py`:
 - Configure via environment variables:
   - `OPENAI_API_KEY`: Your OpenAI API key
   - `OPENAI_API_BASE`: Optional LiteLLM proxy URL
+
+## Web Search Configuration
+
+The project integrates Tavily for real-time web search capabilities:
+- **Required**: `TAVILY_API_KEY` environment variable
+- **Caching**: Redis-based caching with configurable TTLs
+- **Domain filtering**: Whitelist of trusted sources (Amazon, BestBuy, CNET, etc.)
+- **Query routing**: Automatic detection of when web search is beneficial
+- **Usage**:
+  ```bash
+  # Enable web search in regular search
+  uv run python -m app.cli search --query "product name" --web
+  
+  # Check real-time prices
+  uv run python -m app.cli check-price "Fire TV Stick 4K"
+  
+  # Find alternatives
+  uv run python -m app.cli find-alternatives "Apple AirPods Pro"
+  ```
 
 ## Important Reminders for Claude Code
 
