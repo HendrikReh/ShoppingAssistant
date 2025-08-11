@@ -5,7 +5,6 @@ description = "Shopping Assistant is an advanced e-commerce search and recommend
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "black>=25.1.0",
     "dspy>=2.6.27",
     "fastapi>=0.116.1",
     "instructor>=1.10.0",
@@ -21,7 +20,6 @@ dependencies = [
     "ragas>=0.3.0",
     "rank-bm25>=0.2.2",
     "redis>=6.4.0",
-    "ruff>=0.12.8",
     "tavily-python>=0.7.10",
     "sentence-transformers>=3.0.1",
     "torch>=2.3.0",
@@ -37,4 +35,15 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "dotenv>=0.9.9",
     "schedule>=1.2.2",
+    "rich>=14.1.0",
+    "langchain-openai>=0.3.28",
+    "datasets>=4.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "ruff>=0.12.8",
+    "pytest>=8.3.0",
+    "pyright>=1.1.385",
 ]

@@ -149,9 +149,8 @@ uv run python -m app.cli eval-chat \
   --top-k 8 --max-samples 50
 
 # Test specific components
-uv run python test_vec_fix.py  # Test vector search
-uv run python test_llm_config.py  # Test LLM configuration
-uv run python test_ragas_fix.py  # Test RAGAS integration
+uv run pytest tests/test_vector_search.py  # Test vector search
+# uv run pytest tests/  # Run all tests if more test files are added
 ```
 
 ## Architecture
@@ -455,14 +454,13 @@ The project uses a centralized LLM configuration in `app/llm_config.py`:
 ### Testing Commands
 When asked to test or verify changes:
 ```bash
-# Test vector search
-uv run python test_vec_fix.py
+# Run all tests
+uv run pytest tests/
 
-# Test cross-encoder
-uv run python test_new_reranker.py
-
-# Test evaluation reports
-uv run python test_enhanced_reports.py
+# Test specific components
+uv run pytest tests/test_vector_search.py
+uv run pytest tests/test_cross_encoder.py
+uv run pytest tests/test_reports.py
 ```
 
 ### Common Evaluation Commands

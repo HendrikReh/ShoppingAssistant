@@ -7,20 +7,22 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from rank_bm25 import BM25Okapi
-import nltk
-from nltk.corpus import wordnet
-from nltk.stem import WordNetLemmatizer
 import logging
 
-# Download required NLTK data
-try:
-    nltk.data.find('wordnet')
-except LookupError:
-    nltk.download('wordnet')
-    nltk.download('averaged_perceptron_tagger')
-    nltk.download('punkt')
-
+# NLTK imports are now optional - only loaded if needed
 logger = logging.getLogger(__name__)
+
+def _ensure_nltk_data():
+    """Ensure NLTK data is available, download if needed."""
+    try:
+        import nltk
+        nltk.data.find('wordnet')
+        nltk.data.find('averaged_perceptron_tagger')
+        nltk.data.find('punkt')
+        return True
+    except (ImportError, LookupError):
+        logger.warning("NLTK data not available. Synonym expansion disabled.")
+        return False
 
 
 @dataclass
@@ -51,7 +53,13 @@ class QueryPreprocessor:
     """Advanced query preprocessing and expansion."""
     
     def __init__(self):
-        self.lemmatizer = WordNetLemmatizer()
+        self.lemmatizer = None
+        if _ensure_nltk_data():
+            try:
+                from nltk.stem import WordNetLemmatizer
+                self.lemmatizer = WordNetLemmatizer()
+            except ImportError:
+                pass
         
         # Common misspellings in e-commerce
         self.spelling_corrections = {
@@ -216,14 +224,20 @@ class QueryPreprocessor:
         
         # Add WordNet synonyms for key terms
         tokens = query.split()
-        for token in tokens:
-            if len(token) > 3:  # Skip short words
-                synsets = wordnet.synsets(token)[:2]  # Limit to 2 synsets
-                for synset in synsets:
-                    for lemma in synset.lemmas()[:2]:  # Limit lemmas
-                        synonym = lemma.name().replace('_', ' ')
-                        if synonym != token and synonym not in expanded:
-                            expanded.append(synonym)
+        # Only use WordNet if available
+        if _ensure_nltk_data():
+            try:
+                from nltk.corpus import wordnet
+                for token in tokens:
+                    if len(token) > 3:  # Skip short words
+                        synsets = wordnet.synsets(token)[:2]  # Limit to 2 synsets
+                        for synset in synsets:
+                            for lemma in synset.lemmas()[:2]:  # Limit lemmas
+                                synonym = lemma.name().replace('_', ' ')
+                                if synonym != token and synonym not in expanded:
+                                    expanded.append(synonym)
+            except ImportError:
+                pass
         
         # Remove duplicates while preserving order
         seen = set()
