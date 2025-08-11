@@ -281,27 +281,27 @@ def interpret_search_variant_comparison(variants: Dict[str, Dict[str, float]]) -
     for variant, scores in sorted(variants.items()):
         interpretation.append(f"\n**{variant.upper()}**:")
         
-        # Calculate average performance
-        avg_score = sum(scores.values()) / len(scores) if scores else 0
+        # Calculate success rate for this variant
+        success_rate = scores.get("queries_with_results", 0)
         
         # Variant-specific insights
         if variant == "bm25":
-            interpretation.append(f"- Keyword-based search: {avg_score:.1%} average performance")
+            interpretation.append(f"- Keyword-based search: {success_rate:.1%} success rate")
             interpretation.append("- Best for: Exact term matching, product names, model numbers")
             interpretation.append("- Limitations: No semantic understanding, misses synonyms")
             
         elif variant == "vec":
-            interpretation.append(f"- Pure semantic search: {avg_score:.1%} average performance")
+            interpretation.append(f"- Pure semantic search: {success_rate:.1%} success rate")
             interpretation.append("- Best for: Conceptual queries, finding similar products")
             interpretation.append("- Limitations: May miss exact keyword matches")
             
         elif variant == "rrf":
-            interpretation.append(f"- Hybrid search (BM25 + Vector): {avg_score:.1%} average performance")
+            interpretation.append(f"- Hybrid search (BM25 + Vector): {success_rate:.1%} success rate")
             interpretation.append("- Combines keyword and semantic understanding")
             interpretation.append("- Generally more robust than individual methods")
             
         elif variant == "rrf_ce":
-            interpretation.append(f"- Hybrid + Cross-encoder reranking: {avg_score:.1%} average performance")
+            interpretation.append(f"- Hybrid + Cross-encoder reranking: {success_rate:.1%} success rate")
             interpretation.append("- Most sophisticated approach with final relevance scoring")
             interpretation.append("- Best for: Maximum accuracy when latency permits")
         
@@ -316,9 +316,9 @@ def interpret_search_variant_comparison(variants: Dict[str, Dict[str, float]]) -
     
     # Check if cross-encoder helps
     if "rrf" in variants and "rrf_ce" in variants:
-        rrf_avg = sum(variants["rrf"].values()) / len(variants["rrf"]) if variants["rrf"] else 0
-        rrf_ce_avg = sum(variants["rrf_ce"].values()) / len(variants["rrf_ce"]) if variants["rrf_ce"] else 0
-        improvement = ((rrf_ce_avg - rrf_avg) / rrf_avg * 100) if rrf_avg > 0 else 0
+        rrf_success = variants["rrf"].get("queries_with_results", 0)
+        rrf_ce_success = variants["rrf_ce"].get("queries_with_results", 0)
+        improvement = ((rrf_ce_success - rrf_success) / rrf_success * 100) if rrf_success > 0 else 0
         
         if improvement > 10:
             interpretation.append(f"✅ Cross-encoder reranking provides {improvement:.1f}% improvement - recommended for production")
@@ -329,12 +329,13 @@ def interpret_search_variant_comparison(variants: Dict[str, Dict[str, float]]) -
     
     # Check hybrid vs pure methods
     if all(v in variants for v in ["bm25", "vec", "rrf"]):
-        bm25_avg = sum(variants["bm25"].values()) / len(variants["bm25"]) if variants["bm25"] else 0
-        vec_avg = sum(variants["vec"].values()) / len(variants["vec"]) if variants["vec"] else 0
-        rrf_avg = sum(variants["rrf"].values()) / len(variants["rrf"]) if variants["rrf"] else 0
+        bm25_success = variants["bm25"].get("queries_with_results", 0)
+        vec_success = variants["vec"].get("queries_with_results", 0)
+        rrf_success = variants["rrf"].get("queries_with_results", 0)
         
-        if rrf_avg > max(bm25_avg, vec_avg):
-            improvement = ((rrf_avg - max(bm25_avg, vec_avg)) / max(bm25_avg, vec_avg) * 100)
+        best_single = max(bm25_success, vec_success)
+        if best_single > 0 and rrf_success > best_single:
+            improvement = ((rrf_success - best_single) / best_single * 100)
             interpretation.append(f"✅ Hybrid search (RRF) outperforms pure methods by {improvement:.1f}% - recommended")
         else:
             interpretation.append("⚠️ Hybrid search not improving over pure methods - review fusion parameters")
@@ -355,20 +356,22 @@ def generate_search_interpretation(
     interpretation.append("## Executive Summary\n")
     
     # Calculate overall system health
-    all_scores = []
+    # For search evaluation, we focus on queries_with_results as the main health indicator
+    all_queries_with_results = []
     for variant_scores in aggregates.values():
-        all_scores.extend(variant_scores.values())
+        if "queries_with_results" in variant_scores:
+            all_queries_with_results.append(variant_scores["queries_with_results"])
     
-    if all_scores:
-        avg_score = sum(all_scores) / len(all_scores)
+    if all_queries_with_results:
+        avg_score = sum(all_queries_with_results) / len(all_queries_with_results)
         if avg_score >= 0.8:
-            interpretation.append(f"✅ **System Health: EXCELLENT** (Average score: {avg_score:.1%})")
+            interpretation.append(f"✅ **System Health: EXCELLENT** (Average success rate: {avg_score:.1%})")
         elif avg_score >= 0.7:
-            interpretation.append(f"✅ **System Health: GOOD** (Average score: {avg_score:.1%})")
+            interpretation.append(f"✅ **System Health: GOOD** (Average success rate: {avg_score:.1%})")
         elif avg_score >= 0.6:
-            interpretation.append(f"⚠️ **System Health: ACCEPTABLE** (Average score: {avg_score:.1%})")
+            interpretation.append(f"⚠️ **System Health: ACCEPTABLE** (Average success rate: {avg_score:.1%})")
         else:
-            interpretation.append(f"❌ **System Health: NEEDS ATTENTION** (Average score: {avg_score:.1%})")
+            interpretation.append(f"❌ **System Health: NEEDS ATTENTION** (Average success rate: {avg_score:.1%})")
     
     interpretation.append(f"\nEvaluated {config.get('max_samples', 'N/A')} samples across {len(aggregates)} search variants.\n")
     

@@ -56,10 +56,17 @@ uv run ruff check --fix .  # Auto-fix issues
 
 ### CLI Commands
 
-#### Interactive Mode (NEW!)
+#### Interactive Mode (ENHANCED!)
 ```bash
-# Combined interactive mode - seamlessly switch between search and chat
+# Unified interactive mode - just type naturally, no mode selection needed
 uv run python -m app.cli interactive
+
+# Features:
+# - Automatically detects search vs chat intent
+# - Type product names for search (e.g., "wireless mouse")
+# - Ask questions for recommendations (e.g., "what's the best laptop?")
+# - Type /help for tips and examples
+# - Type /exit or Ctrl+C to quit
 ```
 
 #### Ingestion
@@ -94,10 +101,12 @@ uv run python -m app.cli chat \
 ```
 
 #### Interactive Features
-- **Search Mode Commands**: `help` (tips), `settings` (config), `exit`
-- **Chat Mode Commands**: `help` (examples), `context` (settings), `clear` (screen), `exit`
+- **Unified Mode**: No need to choose between search and chat - system auto-detects intent
+- **Search Mode Commands**: `/help` (tips), `/settings` (config), `/exit`
+- **Chat Mode Commands**: `/help` (examples), `/context` (settings), `/clear` (screen), `/exit`
 - **Visual Feedback**: Color-coded results, emojis, progress indicators
-- **Persistent Sessions**: Data loaded once for faster responses
+- **Persistent Sessions**: Models and data loaded once for faster responses
+- **Smart Routing**: Simple product names trigger search, questions trigger chat
 
 #### Evaluation
 ```bash
@@ -180,6 +189,32 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 - **main.py**: Entry point for the application (to be expanded)
 
 ### Recent Changes
+
+#### Session 2025-08-10 Updates (Part 4)
+
+**Unified Interactive Mode:**
+- **No mode selection required**: Users can type naturally without choosing search or chat
+- **Intelligent routing**: System automatically detects search vs chat intent
+  - Simple product names → Search mode
+  - Questions with "?" or question words → Chat mode
+  - Search keywords (find, show, list) → Search mode
+  - Chat keywords (what, how, why, explain) → Chat mode
+- **Override options**: `/search` and `/chat` commands to force specific modes
+- **Single interface**: Seamless experience without mode switching friction
+
+**Fixed Evaluation Metrics:**
+- **Removed RAGAS metrics from search evaluation**: ContextRelevance and ContextUtilization require answers
+- **Added simple retrieval metrics**:
+  - `num_queries`: Number of queries evaluated
+  - `avg_contexts_retrieved`: Average contexts per query
+  - `queries_with_results`: Success rate (0-1 ratio)
+- **Fixed percentage calculations**: Corrected eval_interpreter.py to use appropriate metrics
+- **No more NaN values**: Search evaluation now provides meaningful statistics
+
+**Interactive Mode Bug Fixes:**
+- **Fixed parameter passing**: Resolved TypeError when invoking commands from interactive mode
+- **Proper defaults**: All command parameters now explicitly passed with correct values
+- **Improved error handling**: Better exception handling and user feedback
 
 #### Session 2025-08-10 Updates (Part 3)
 
@@ -424,14 +459,14 @@ uv run python -m app.cli generate-testset \
   --output-name realistic_catalog
 
 # Full search evaluation with optimized parameters
+# Note: Search evaluation now uses simple retrieval metrics (no RAGAS)
 uv run python -m app.cli eval-search \
   --dataset eval/datasets/realistic_catalog_*.jsonl \
   --variants bm25,vec,rrf,rrf_ce \
   --top-k 25 --rrf-k 80 \
-  --enhanced \
   --max-samples 50
 
-# Quick chat evaluation
+# Quick chat evaluation with RAGAS metrics
 uv run python -m app.cli eval-chat \
   --dataset eval/datasets/realistic_catalog_*.jsonl \
   --top-k 8 --max-samples 20

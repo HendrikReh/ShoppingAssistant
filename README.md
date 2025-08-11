@@ -4,13 +4,13 @@ An advanced e-commerce search and recommendation system that combines data analy
 
 ## Features
 
-- **Semantic Search**: Vector search using Qdrant with gte-large embeddings (1024-dim)
+- **Semantic Search**: Vector search using Qdrant with all-MiniLM-L6-v2 embeddings (384-dim)
 - **Hybrid Retrieval**: Combines BM25 keyword search with semantic search using Reciprocal Rank Fusion (RRF)
 - **Cross-encoder Reranking**: Uses ms-marco-MiniLM-L-12-v2 for improved result reranking
-- **Interactive Modes**: Three interactive modes for seamless user experience
-  - 🔍 **Interactive Search**: Continuous product searching with built-in help
-  - 💬 **Interactive Chat**: Natural conversations with the shopping assistant
-  - 🛍️ **Combined Mode**: Switch between search and chat seamlessly
+- **Unified Interactive Mode**: Natural language interface that automatically detects search vs chat intent
+  - 🔍 **Automatic Search**: Type product names to search
+  - 💬 **Automatic Chat**: Ask questions for recommendations
+  - 🛍️ **No Mode Selection**: System intelligently routes queries
 - **Visual CLI**: Colored outputs, emojis, and progress indicators for better UX
 - **Interactive Analysis**: Marimo notebooks for data exploration and visualization
 - **Command-Line Interface**: Typer-based CLI for all core functionality
@@ -52,14 +52,20 @@ This starts:
 
 ### Try It Out!
 
-After setup, try the interactive mode:
+After setup, try the unified interactive mode:
 ```bash
-# Start the interactive shopping assistant
+# Start the shopping assistant - no mode selection needed!
 uv run python -m app.cli interactive
 
-# Or jump directly into search or chat
-uv run python -m app.cli search    # Interactive search
-uv run python -m app.cli chat      # Interactive chat
+# Examples of what you can type:
+# "wireless mouse"              → Triggers search
+# "what's the best laptop?"     → Triggers chat
+# "gaming keyboard"             → Triggers search
+# "compare tablets under $500"  → Triggers chat
+
+# Or use specific modes directly:
+uv run python -m app.cli search    # Search-only mode
+uv run python -m app.cli chat      # Chat-only mode
 ```
 
 ### Configuration
@@ -83,10 +89,15 @@ uv run python -m app.cli ingest \
 
 ## Command-Line Interface
 
-### Interactive Mode (NEW!)
+### Interactive Mode (Enhanced!)
 ```bash
-# Combined interactive mode - switch between search and chat
+# Unified interactive mode - just type naturally!
 uv run python -m app.cli interactive
+
+# The system automatically detects your intent:
+# - Product names → Search
+# - Questions → Chat  
+# - Type /help for tips and examples
 ```
 
 ### Search
@@ -111,9 +122,10 @@ uv run python -m app.cli chat \
 ```
 
 ### Interactive Features
-- **Built-in Commands**: `/help`, `/settings`, `/context`, `/clear`, `/exit`
+- **Smart Intent Detection**: Automatically routes to search or chat based on input
+- **Built-in Commands**: `/help` (tips), `/exit` (quit)
 - **Color-Coded Results**: Green (high relevance), Yellow (medium), White (low)
-- **Persistent Sessions**: Data loaded once for faster responses
+- **Persistent Sessions**: Models and data loaded once for faster responses
 - **Visual Feedback**: Thinking indicators, progress bars, formatted outputs
 - **Execution Tracking**: All evaluation reports include the exact command used for reproducibility
 
@@ -133,14 +145,14 @@ uv run python -m app.cli generate-testset \
 
 #### Run Evaluations with Optimized Parameters
 ```bash
-# Evaluate search with optimized retrieval window
+# Evaluate search performance (uses simple retrieval metrics)
 uv run python -m app.cli eval-search \
   --dataset eval/datasets/realistic_catalog_*.jsonl \
-  --top-k 25 --rrf-k 80 --rerank-top-k 35 \
+  --top-k 25 --rrf-k 80 \
   --variants bm25,vec,rrf,rrf_ce \
-  --enhanced  # Enable query expansion
+  --max-samples 50
 
-# Evaluate chat quality
+# Evaluate chat quality (uses RAGAS metrics)
 uv run python -m app.cli eval-chat \
   --dataset eval/datasets/realistic_catalog_*.jsonl \
   --top-k 8 --max-samples 50
@@ -240,7 +252,7 @@ ShoppingAssistant/
 - **RAG Framework**: DSPy (retrieval-augmented generation)
 - **Vector Search**: Qdrant (semantic search)
 - **Keyword Search**: BM25 (traditional text matching)
-- **Embeddings**: Sentence Transformers (thenlper/gte-large, 1024-dim)
+- **Embeddings**: Sentence Transformers (all-MiniLM-L6-v2, 384-dim)
 - **Reranking**: Cross-encoder (ms-marco-MiniLM-L-12-v2)
 - **LLM**: OpenAI GPT-4o-mini (configurable)
 - **CLI**: Typer (command-line interface)
@@ -258,11 +270,19 @@ ShoppingAssistant/
 - [RAG Evaluation Insights](docs/RAG_EVALUATION_INSIGHTS.md) - Understanding evaluation metrics and results
 - [Cross-Encoder Models Guide](docs/RERANKING_MODELS.md) - Choosing and configuring reranking models
 
-## Known Issues & Fixes
+## Recent Improvements
 
+### Latest Updates (2025-08-10)
+- **Unified Interactive Mode**: No mode selection needed - just type naturally
+- **Fixed Evaluation Metrics**: Search evaluation now uses appropriate retrieval metrics (no RAGAS)
+- **Better Embeddings**: Switched to all-MiniLM-L6-v2 for better product discrimination
+- **Smart Intent Detection**: Automatically routes queries to search or chat
+- **Enhanced CLI**: Fixed parameter passing issues in interactive modes
+
+### Previous Fixes
 - **Vector Search ID Mapping**: Fixed - Qdrant UUIDs now properly map to original IDs
 - **RAGAS Score Extraction**: Fixed - Handles list-based score format
-- **LiteLLM Dependencies**: All required packages included (apscheduler, cryptography, python-multipart, email-validator)
+- **LiteLLM Dependencies**: All required packages included
 - **Timestamp Format**: Evaluation results use human-readable format (YYYYMMDD_HHMMSS)
 - **Low Context Utilization**: This is normal for RAG systems (see [documentation](docs/RAG_EVALUATION_INSIGHTS.md))
 
