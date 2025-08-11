@@ -342,12 +342,23 @@ def _bm25_from_files(products_path: Path, reviews_path: Path):
     return bm25_prod, bm25_rev, id_to_product, id_to_review
 
 
-def _rrf_fuse(result_lists: list[list[tuple[str, float]]], k: int = 60) -> dict[str, float]:
+def _rrf_fuse(result_lists: list[list[tuple[str, float]]], k: int = 60, product_boost: float = 1.5) -> dict[str, float]:
+    """RRF fusion with optional product boost.
+    
+    Args:
+        result_lists: List of ranked results from different methods
+        k: RRF k parameter
+        product_boost: Multiplicative boost for product results (default 1.5)
+    """
     fused: dict[str, float] = {}
     for results in result_lists:
         for rank, item in enumerate(results, start=1):
             _id = item[0]
-            fused[_id] = fused.get(_id, 0.0) + 1.0 / (k + rank)
+            score = 1.0 / (k + rank)
+            # Boost products over reviews
+            if _id.startswith("prod::") and product_boost > 1.0:
+                score *= product_boost
+            fused[_id] = fused.get(_id, 0.0) + score
     return fused
 
 
@@ -576,7 +587,8 @@ def _hybrid_search_inline(
     ce_model,
     top_k: int = 20,
     rrf_k: int = 60,
-    rerank_top_k: int = 30
+    rerank_top_k: int = 30,
+    products_only: bool = False
 ) -> list:
     """Perform hybrid search with all components already loaded."""
     device = _device_str()
@@ -584,22 +596,30 @@ def _hybrid_search_inline(
     # BM25 search
     q_tokens = _tokenize(query.lower())
     prod_ids = list(id_to_product.keys())
-    rev_ids = list(id_to_review.keys())
     
     prod_ranked = []
     for i, score in enumerate(bm25_prod.get_scores(q_tokens)):
         if score > 0 and i < len(prod_ids):
             prod_ranked.append((prod_ids[i], score))
     
+    # Only include reviews if not products_only
     rev_ranked = []
-    for i, score in enumerate(bm25_rev.get_scores(q_tokens)):
-        if score > 0 and i < len(rev_ids):
-            rev_ranked.append((rev_ids[i], score))
+    rev_vec = []
+    if not products_only:
+        rev_ids = list(id_to_review.keys())
+        for i, score in enumerate(bm25_rev.get_scores(q_tokens)):
+            if score > 0 and i < len(rev_ids):
+                rev_ranked.append((rev_ids[i], score))
     
     # Vector search
     q_vec = st_model.encode([query], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
     prod_hits = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k*2)
-    rev_hits = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k*2)
+    
+    # Only search reviews if not products_only
+    if not products_only:
+        rev_hits = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k*2)
+    else:
+        rev_hits = []
     
     # Convert to consistent format for fusion
     prod_vec = []
@@ -608,14 +628,17 @@ def _hybrid_search_inline(
         if original_id and original_id in id_to_product:
             prod_vec.append((original_id, score))
     
-    rev_vec = []
-    for doc_id, score, _ in rev_hits:
-        original_id = doc_id
-        if original_id and original_id in id_to_review:
-            rev_vec.append((original_id, score))
+    if not products_only:
+        for doc_id, score, _ in rev_hits:
+            original_id = doc_id
+            if original_id and original_id in id_to_review:
+                rev_vec.append((original_id, score))
     
-    # RRF fusion
-    fused = _rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=rrf_k)
+    # RRF fusion - only include review lists if not products_only
+    if products_only:
+        fused = _rrf_fuse([prod_ranked, prod_vec], k=rrf_k)
+    else:
+        fused = _rrf_fuse([prod_ranked, rev_ranked, prod_vec, rev_vec], k=rrf_k)
     fused_sorted = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:50]
     
     # Cross-encoder reranking
@@ -632,7 +655,11 @@ def _hybrid_search_inline(
                 candidates.append((_id, f"{r.get('title','')}\n{r.get('text','')}"))
         
         if candidates:
-            ranked = _cross_encoder_scores(CROSS_ENCODER_MODEL, device, query, candidates)
+            # Use the passed ce_model directly instead of reloading
+            pairs = [(query, text) for _, text in candidates]
+            scores = ce_model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
+            ranked = [(candidates[i][0], float(scores[i])) for i in range(len(candidates))]
+            ranked.sort(key=lambda x: x[1], reverse=True)
             ce_scores = {cid: score for cid, score in ranked}
     
     # Combine and sort results
@@ -755,6 +782,17 @@ def interactive() -> None:
             products_only = True
             query = query.replace(', products only', '').replace(' products only', '')
         
+        # Check for typos and suggest corrections using fast LLM approach
+        try:
+            from app.fast_query_correction import suggest_correction
+            correction = suggest_correction(query)
+            if correction and correction != query:
+                typer.secho(f"  (Auto-corrected to: '{correction}')", fg=typer.colors.BRIGHT_BLACK, italic=True)
+                query = correction
+        except Exception:
+            # If correction fails, continue with original query
+            pass
+        
         # Auto-detect mode based on query content
         if is_search_query(query):
             mode = 'search'
@@ -769,7 +807,8 @@ def interactive() -> None:
                 components['bm25_prod'], components['bm25_rev'], 
                 components['id_to_product'], components['id_to_review'], 
                 components['ce_model'],
-                top_k=20, rrf_k=60, rerank_top_k=30
+                top_k=20, rrf_k=60, rerank_top_k=30,
+                products_only=products_only
             )
             
             if not results:

@@ -190,6 +190,19 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
 
 ### Recent Changes
 
+#### Session 2025-08-11 Updates
+
+**Improved Product Search:**
+- **Query preprocessing**: Automatically removes command prefixes like "search for", "find", "show me"
+- **Products-only filtering**: Detects "products only" suffix and excludes reviews from results
+- **Product boosting**: RRF fusion now applies 1.5x weight boost to products over reviews
+- **Better relevance**: Product searches now consistently return products as top results
+- **Fixed search results**: "TV Sticks" and similar queries now correctly return relevant products
+- **LLM-based typo correction**: Intelligent query correction using LLM with caching for performance
+  - Pre-filtering with heuristics to avoid unnecessary LLM calls
+  - Cached common corrections for instant response
+  - Fallback to original query if correction fails
+
 #### Session 2025-08-10 Updates (Part 4)
 
 **Unified Interactive Mode:**
@@ -199,7 +212,8 @@ uv run python test_ragas_fix.py  # Test RAGAS integration
   - Questions with "?" or question words → Chat mode
   - Search keywords (find, show, list) → Search mode
   - Chat keywords (what, how, why, explain) → Chat mode
-- **Override options**: `/search` and `/chat` commands to force specific modes
+- **Lazy loading**: Components load on first use for instant startup (no delay before "You:" prompt)
+- **Clean UI**: Removed all emojis for cleaner, professional interface
 - **Single interface**: Seamless experience without mode switching friction
 
 **Fixed Evaluation Metrics:**

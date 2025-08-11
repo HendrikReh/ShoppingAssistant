@@ -269,10 +269,17 @@ ShoppingAssistant/
 - [CLI Reference](docs/CLI.md) - Complete command-line interface documentation
 - [RAG Evaluation Insights](docs/RAG_EVALUATION_INSIGHTS.md) - Understanding evaluation metrics and results
 - [Cross-Encoder Models Guide](docs/RERANKING_MODELS.md) - Choosing and configuring reranking models
+- [Search Relevance Learnings](docs/SEARCH_RELEVANCE_LEARNINGS.md) - Why products vs reviews score differently
 
 ## Recent Improvements
 
-### Latest Updates (2025-08-10)
+### Latest Updates (2025-08-11)
+- **Improved Product Search**: Products now prioritized over reviews with 1.5x boost
+- **Query Preprocessing**: Automatically removes "search for" and similar prefixes
+- **Products-Only Mode**: Filter out reviews when you only want products
+- **Search Relevance Documentation**: New guide explaining products vs reviews scoring
+
+### Previous Updates (2025-08-10)
 - **Unified Interactive Mode**: No mode selection needed - just type naturally
 - **Fixed Evaluation Metrics**: Search evaluation now uses appropriate retrieval metrics (no RAGAS)
 - **Better Embeddings**: Switched to all-MiniLM-L6-v2 for better product discrimination
