@@ -502,9 +502,16 @@ def search(
       typer.secho(f"Found {len(results)} results ({', '.join(source_info)})\n", fg=typer.colors.WHITE)
       
       for idx, result in enumerate(results[:20], 1):
-        # Determine type and source indicator
-        type_str = "[PRODUCT]" if result.is_product else "[REVIEW]" if result.is_review else "[WEB]"
-        source_indicator = " " if not result.is_web else ""
+        # Determine source (RAG vs WEB) and content type
+        source_str = "[WEB]" if result.is_web else "[RAG]"
+        
+        # Determine content type
+        if result.is_product:
+          content_type = "PRODUCT"
+        elif result.is_review:
+          content_type = "REVIEW"
+        else:
+          content_type = ""  # Web results don't need additional type
         
         # Color based on relevance
         if result.score > 0.8:
@@ -514,7 +521,13 @@ def search(
         else:
           color = typer.colors.WHITE
         
-        typer.secho(f"{idx:2}. {type_str}{source_indicator} {result.title[:80]}", fg=color, bold=True)
+        # Format title with source and type
+        if content_type:
+          display_str = f"{idx:2}. {source_str} {content_type}: {result.title[:80]}"
+        else:
+          display_str = f"{idx:2}. {source_str} {result.title[:80]}"
+        
+        typer.secho(display_str, fg=color, bold=True)
         
         # Show metadata
         if result.url:
