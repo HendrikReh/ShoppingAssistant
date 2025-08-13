@@ -94,8 +94,35 @@ def _load_st_model(model_name: str, device: str | None = None):
   """Load or get cached sentence transformer model."""
   cache_key = f"{model_name}_{device}"
   if cache_key not in _st_model_cache:
-    from sentence_transformers import SentenceTransformer
-    _st_model_cache[cache_key] = SentenceTransformer(model_name, device=device)
+    try:
+      from sentence_transformers import SentenceTransformer
+      import os
+      
+      # Try to load from cache first
+      cache_folder = os.path.expanduser(f"~/.cache/torch/sentence_transformers/{model_name.replace('/', '_')}")
+      if os.path.exists(cache_folder):
+        typer.secho(f"    Loading from cache: {cache_folder}", fg=typer.colors.BRIGHT_BLACK)
+        _st_model_cache[cache_key] = SentenceTransformer(cache_folder, device=device)
+      else:
+        # Try to download from Hugging Face
+        _st_model_cache[cache_key] = SentenceTransformer(model_name, device=device)
+    except Exception as e:
+      if "Failed to resolve" in str(e) or "Connection" in str(e):
+        typer.secho(f"\n⚠️  Cannot connect to Hugging Face to download model: {model_name}", fg=typer.colors.YELLOW)
+        typer.secho("    This could be due to:", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("    • No internet connection", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("    • Hugging Face is down", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("    • Firewall/proxy blocking access", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("\n    Solutions:", fg=typer.colors.GREEN)
+        typer.secho("    1. Check your internet connection", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("    2. Try again later if Hugging Face is down", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("    3. Pre-download the model:", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho(f"       python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('{model_name}')\"", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("    4. Use a different embedding model in pyproject.toml", fg=typer.colors.BRIGHT_BLACK)
+        raise typer.Exit(1)
+      else:
+        typer.secho(f"\n❌ Error loading model {model_name}: {e}", fg=typer.colors.RED)
+        raise
   return _st_model_cache[cache_key]
 
 
@@ -396,14 +423,34 @@ def _get_cross_encoder(model_name: str, device: str):
   """Get or create cached cross-encoder model."""
   cache_key = f"{model_name}_{device}"
   if cache_key not in _cross_encoder_cache:
-    from sentence_transformers import CrossEncoder
-    _cross_encoder_cache[cache_key] = CrossEncoder(model_name, device=device)
+    typer.secho(f"  • Loading cross-encoder model (first time only)...", fg=typer.colors.BRIGHT_BLACK)
+    try:
+      from sentence_transformers import CrossEncoder
+      import os
+      
+      # Try to load from cache first
+      cache_folder = os.path.expanduser(f"~/.cache/torch/sentence_transformers/{model_name.replace('/', '_')}")
+      if os.path.exists(cache_folder):
+        typer.secho(f"    Loading from cache: {cache_folder}", fg=typer.colors.BRIGHT_BLACK)
+        _cross_encoder_cache[cache_key] = CrossEncoder(cache_folder, device=device)
+      else:
+        _cross_encoder_cache[cache_key] = CrossEncoder(model_name, device=device)
+    except Exception as e:
+      if "Failed to resolve" in str(e) or "Connection" in str(e):
+        typer.secho(f"\n⚠️  Cannot download cross-encoder model: {model_name}", fg=typer.colors.YELLOW)
+        typer.secho("    Continuing without reranking (results may be less relevant)", fg=typer.colors.BRIGHT_BLACK)
+        return None
+      else:
+        raise
   return _cross_encoder_cache[cache_key]
 
 def _cross_encoder_scores(model_name: str, device: str, query: str, candidates: list[tuple[str, str]]) -> list[tuple[str, float]]:
   if not candidates:
     return []
   ce = _get_cross_encoder(model_name, device)
+  if ce is None:
+    # Fallback: return candidates with their original order as scores
+    return [(cid, float(len(candidates) - i)) for i, (cid, _) in enumerate(candidates)]
   pairs = [(query, text) for _, text in candidates]
   scores = ce.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
   ranked = [(candidates[i][0], float(scores[i])) for i in range(len(candidates))]
@@ -425,12 +472,23 @@ def search(
 ) -> None:
   """Hybrid retrieval (BM25 + vectors) with optional cross-encoder rerank."""
 
+  # Show initialization progress
+  typer.secho("Initializing search components...", fg=typer.colors.YELLOW, italic=True)
+  
   device = _device_str()
+  typer.secho(f"  • Device: {device}", fg=typer.colors.BRIGHT_BLACK)
+  
+  typer.secho("  • Loading embedding model...", fg=typer.colors.BRIGHT_BLACK)
   st_model = _load_st_model(EMBED_MODEL, device=device)
+  
+  typer.secho("  • Connecting to Qdrant...", fg=typer.colors.BRIGHT_BLACK)
   client = _qdrant_client()
 
   # Load data once for the session
+  typer.secho("  • Loading product and review data...", fg=typer.colors.BRIGHT_BLACK)
   bm25_prod, bm25_rev, id_to_product, id_to_review = _bm25_from_files(products_path, reviews_path)
+  
+  typer.secho("Ready!\n", fg=typer.colors.GREEN)
   
   # Initialize web search if enabled
   web_agent = None
@@ -560,7 +618,10 @@ def search(
     )[:top_k]
 
     # Vectors - need to map UUIDs back to original IDs
+    typer.secho("  • Encoding query...", fg=typer.colors.BRIGHT_BLACK)
     q_vec = st_model.encode([search_query], batch_size=1, normalize_embeddings=True, device=device, convert_to_numpy=True)[0].tolist()
+    
+    typer.secho("  • Searching vector database...", fg=typer.colors.BRIGHT_BLACK)
     prod_vec_raw = _vector_search(client, COLLECTION_PRODUCTS, q_vec, top_k=top_k)
     rev_vec_raw = _vector_search(client, COLLECTION_REVIEWS, q_vec, top_k=top_k)
     
@@ -617,7 +678,7 @@ def search(
           color = typer.colors.WHITE
           
         typer.secho(
-          f"{idx:2d}. [PRODUCT] {title}",
+          f"{idx:2d}. [RAG] PRODUCT: {title}",
           fg=color, bold=True
         )
         typer.echo(f"  ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: {rating}")
@@ -637,7 +698,7 @@ def search(
           color = typer.colors.WHITE
           
         typer.secho(
-          f"{idx:2d}. [REVIEW] {title}",
+          f"{idx:2d}. [RAG] REVIEW: {title}",
           fg=color
         )
         typer.echo(f"  ID: {_id} | RRF: {score:.4f} | CE: {ce_score:.4f} | Rating: {rating}")

@@ -126,6 +126,17 @@ uv run python -m app.cli search \
   --web-only
 ```
 
+#### Search Result Format
+Results are labeled by source and type:
+- `[RAG] PRODUCT`: Products from local vector database
+- `[RAG] REVIEW`: Reviews from local vector database  
+- `[WEB]`: Real-time results from web search
+
+Color coding indicates relevance:
+- 🟢 **Green**: High relevance (score > 0.8)
+- 🟡 **Yellow**: Medium relevance (score 0.5-0.8)
+- ⚪ **White**: Low relevance (score < 0.5)
+
 ### Web Search Commands (NEW)
 ```bash
 # Check current prices and availability
@@ -298,25 +309,92 @@ ShoppingAssistant/
 
 ## Recent Improvements
 
-### Latest Updates (2025-08-11)
-- **Improved Product Search**: Products now prioritized over reviews with 1.5x boost
-- **Query Preprocessing**: Automatically removes "search for" and similar prefixes
-- **Products-Only Mode**: Filter out reviews when you only want products
-- **Search Relevance Documentation**: New guide explaining products vs reviews scoring
+### Latest Updates (2025-08-13)
+- **Source Type Labels**: Search results now clearly show `[RAG]` for local data and `[WEB]` for web results
+- **Model Download Handling**: Better error messages and offline mode support
+- **Progress Indicators**: Clear feedback during model loading and search operations
+- **Pre-download Script**: `download_models.py` for offline preparation
+- **Connection Error Recovery**: Graceful handling of Hugging Face connection issues
 
-### Previous Updates (2025-08-10)
+### Updates (2025-08-11)
+- **Web Search Integration**: Tavily API integration for real-time product information
+- **Hybrid Retrieval**: Intelligent routing between local and web sources
+- **Input Buffering Fix**: Terminal now properly waits for "You:" prompt before accepting input
+- **Improved Product Search**: Products prioritized over reviews with 1.5x boost
+- **Query Preprocessing**: Automatically removes "search for" and similar prefixes
+
+### Updates (2025-08-10)
 - **Unified Interactive Mode**: No mode selection needed - just type naturally
-- **Fixed Evaluation Metrics**: Search evaluation now uses appropriate retrieval metrics (no RAGAS)
+- **Fixed Evaluation Metrics**: Search evaluation uses appropriate retrieval metrics
 - **Better Embeddings**: Switched to all-MiniLM-L6-v2 for better product discrimination
 - **Smart Intent Detection**: Automatically routes queries to search or chat
-- **Enhanced CLI**: Fixed parameter passing issues in interactive modes
+- **Critical Bug Fixes**: Fixed UUID mapping bug in vector search
 
-### Previous Fixes
-- **Vector Search ID Mapping**: Fixed - Qdrant UUIDs now properly map to original IDs
-- **RAGAS Score Extraction**: Fixed - Handles list-based score format
-- **LiteLLM Dependencies**: All required packages included
-- **Timestamp Format**: Evaluation results use human-readable format (YYYYMMDD_HHMMSS)
+### Known Issues Fixed
+- **UUID Mapping Bug**: Vector search now correctly maps Qdrant UUIDs to original IDs
+- **Input Buffering**: Fixed issue where text typed before prompt appeared in query
+- **RAGAS Score Extraction**: Handles list-based score format correctly
+- **Dependencies**: Added missing rich, langchain-openai, datasets packages
 - **Low Context Utilization**: This is normal for RAG systems (see [documentation](docs/RAG_EVALUATION_INSIGHTS.md))
+
+## Troubleshooting
+
+### Connection Error: "Cannot connect to Hugging Face"
+
+If you see errors about failing to download models:
+
+```bash
+ConnectionError: Failed to resolve 'huggingface.co'
+```
+
+**Solutions:**
+
+1. **Check Internet Connection**: Ensure you have a working internet connection
+
+2. **Pre-download Models** (Recommended):
+   ```bash
+   # Download all models when you have internet:
+   uv run python download_models.py
+   ```
+   This downloads and caches:
+   - `sentence-transformers/all-MiniLM-L6-v2` (embedding model)
+   - `cross-encoder/ms-marco-MiniLM-L-12-v2` (reranking model)
+   - Models are cached in `~/.cache/torch/sentence_transformers/`
+
+3. **Behind a Proxy/Firewall**: Set proxy environment variables:
+   ```bash
+   export HTTP_PROXY=http://your-proxy:port
+   export HTTPS_PROXY=http://your-proxy:port
+   ```
+
+4. **Hugging Face is Down**: Try again later or use cached models
+
+### First Run is Slow
+
+The first search takes longer because:
+- Models need to be downloaded (384MB+ total)
+- Models need to be loaded into memory
+- Subsequent searches are much faster (models are cached)
+
+### "No API key configured"
+
+```bash
+# Add to .env file:
+OPENAI_API_KEY='your-key-here'
+```
+
+### "Collection not found" in Qdrant
+
+```bash
+# Re-run data ingestion:
+uv run python -m app.cli ingest
+```
+
+### Low Search Relevance
+
+- Ensure Docker services are running (`docker-compose up -d`)
+- Try using `--web` flag for web-enhanced search
+- Review the metrics guide: `docs/RAG_EVALUATION_INSIGHTS.md`
 
 ## License
 

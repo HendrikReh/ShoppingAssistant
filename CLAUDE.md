@@ -189,6 +189,34 @@ uv run pytest tests/test_vector_search.py  # Test vector search
 
 ### Recent Changes
 
+#### Session 2025-08-13 Updates
+
+**Critical Bug Fixes (from GPT-5 code review):**
+- **Fixed UUID mapping bug in _hybrid_search_inline**: Vector search now correctly extracts `original_id` from payload
+  - Bug would have caused retrieval failures in production
+  - Fixed extraction: `payload.get('original_id', payload.get('id', ''))`
+- **Fixed input buffering issue**: Terminal now properly waits for "You:" prompt before accepting input
+  - Used `termios.tcflush(sys.stdin, termios.TCIFLUSH)` after displaying prompt
+  - Prevents text typed during initialization from appearing in query
+- **Added missing dependencies**: rich, langchain-openai, datasets
+- **Moved dev dependencies to [dependency-groups]**: Cleaner separation of runtime vs dev dependencies
+- **Removed emojis from CLI**: Follows no-emoji guidelines in CLAUDE.md
+
+**Search Result Display Improvements:**
+- **Source type labels**: All results now show `[RAG]` or `[WEB]` to indicate data source
+  - `[RAG] PRODUCT`: Local products from vector database
+  - `[RAG] REVIEW`: Local reviews from vector database
+  - `[WEB]`: Real-time web search results
+- **Consistent labeling**: Works across all search modes (regular, --web, --web-only)
+- **Color coding**: Green (>0.8), Yellow (0.5-0.8), White (<0.5) based on relevance
+
+**Model Download & Offline Support:**
+- **Better error handling**: Clear messages when Hugging Face connection fails
+- **Progress indicators**: Shows what's being loaded during initialization
+- **Pre-download script**: Created `download_models.py` to cache models for offline use
+- **Graceful fallback**: System continues without reranking if cross-encoder fails
+- **Cache detection**: Checks local cache before attempting download
+
 #### Session 2025-08-11 Updates (Part 2)
 
 **Tavily Web Search Integration:**
@@ -487,6 +515,28 @@ The project integrates Tavily for real-time web search capabilities:
   uv run python -m app.cli find-alternatives "Apple AirPods Pro"
   ```
 
+## Troubleshooting for Developers
+
+### Model Download Issues
+If users report "Cannot connect to Hugging Face":
+1. Check if models are cached locally: `~/.cache/torch/sentence_transformers/`
+2. Run pre-download script: `uv run python download_models.py`
+3. The system will gracefully degrade (e.g., skip reranking) if models fail to load
+
+### Search Performance Issues
+- First search is slow due to model loading (expected)
+- Subsequent searches should be fast (models cached in memory)
+- If consistently slow, check Qdrant connection and Redis cache
+
+### Result Relevance Issues
+- Local search for non-existent products (e.g., "RTX 4090") will return irrelevant results
+- Solution: Use `--web` flag for web-enhanced search
+- Check if correct embedding model is used (all-MiniLM-L6-v2)
+
+### Input Buffering Issues
+- If text appears before "You:" prompt, check termios.tcflush implementation
+- Ensure prompt is displayed before input is accepted
+
 ## Important Reminders for Claude Code
 
 ### File Operations
@@ -503,13 +553,23 @@ The project integrates Tavily for real-time web search capabilities:
 ### Testing Commands
 When asked to test or verify changes:
 ```bash
-# Run all tests
-uv run pytest tests/
+# Pre-download models for offline testing
+uv run python download_models.py
 
-# Test specific components
-uv run pytest tests/test_vector_search.py
-uv run pytest tests/test_cross_encoder.py
-uv run pytest tests/test_reports.py
+# Test web search integration
+uv run pytest tests/test_web_search.py
+
+# Test vector search fix
+uv run python test_vec_fix.py
+
+# Test cross-encoder
+uv run python test_new_reranker.py
+
+# Test evaluation reports
+uv run python test_enhanced_reports.py
+
+# Run all tests (if available)
+uv run pytest tests/ -v
 ```
 
 ### Common Evaluation Commands
