@@ -551,8 +551,8 @@ class VectorDiagnostics:
                 })
             
             # Statistics
-            avg_total = np.mean([l["total_ms"] for l in latencies])
-            max_total = np.max([l["total_ms"] for l in latencies])
+            avg_total = np.mean([entry["total_ms"] for entry in latencies])
+            max_total = np.max([entry["total_ms"] for entry in latencies])
             
             issues = []
             if avg_total > 100:

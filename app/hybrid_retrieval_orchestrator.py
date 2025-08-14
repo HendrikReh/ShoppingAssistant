@@ -168,7 +168,8 @@ class HybridRetrievalOrchestrator:
         self.bm25_products = bm25_products
         self.bm25_reviews = bm25_reviews
         self.web_agent = web_search_agent
-        self.enable_web_search = enable_web_search and web_search_agent is not None
+        # Keep flag exactly as passed; downstream can still check agent presence
+        self.enable_web_search = enable_web_search
         
         self.intent_analyzer = QueryIntentAnalyzer()
     
@@ -435,6 +436,13 @@ class HybridRetrievalOrchestrator:
         # Re-sort by score to maintain ranking
         final.sort(key=lambda x: x.score, reverse=True)
         
+        # Ensure quotas are respected; if not enough web/local, fill from others
+        if len(final) < top_k:
+            for r in results:
+                if len(final) >= top_k:
+                    break
+                if r not in final:
+                    final.append(r)
         return final[:top_k]
     
     def get_product_details(self, product_name: str) -> Dict[str, Any]:

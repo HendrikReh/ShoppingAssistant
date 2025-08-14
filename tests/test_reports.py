@@ -50,7 +50,7 @@ def check_report_files(base_name: str):
             data = json.load(f)
         
         if "call_parameters" not in data:
-            print(f"❌ Missing 'call_parameters' in JSON report")
+            print("❌ Missing 'call_parameters' in JSON report")
             return False
         
         params = data["call_parameters"]
@@ -62,7 +62,7 @@ def check_report_files(base_name: str):
                 return False
             print(f"  ✓ {field}: {params[field]}")
         
-        print(f"✅ JSON report has all required call parameters")
+        print("✅ JSON report has all required call parameters")
         
     except Exception as e:
         print(f"❌ Error reading JSON report: {e}")
@@ -75,7 +75,7 @@ def check_report_files(base_name: str):
         content = md_file.read_text()
         
         if "### Call Parameters" not in content:
-            print(f"❌ Missing 'Call Parameters' section in Markdown report")
+            print("❌ Missing 'Call Parameters' section in Markdown report")
             return False
         
         required_strings = ["Command", "Timestamp", "Dataset", "top_k"]
@@ -84,7 +84,7 @@ def check_report_files(base_name: str):
                 print(f"❌ Missing '{s}' in Markdown report")
                 return False
         
-        print(f"✅ Markdown report has Call Parameters section")
+        print("✅ Markdown report has Call Parameters section")
         
         # Show a snippet of the parameters section
         lines = content.split('\n')

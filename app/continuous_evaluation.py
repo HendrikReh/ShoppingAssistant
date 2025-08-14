@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from qdrant_client import QdrantClient
@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.live import Live
 from rich.layout import Layout
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import SpinnerColumn, TextColumn
 import schedule
 import threading
 

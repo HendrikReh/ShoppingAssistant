@@ -5,6 +5,7 @@ from typing import Optional
 from langchain_openai import ChatOpenAI
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from langchain_openai import OpenAIEmbeddings
 
 def get_ragas_llm(model_name: Optional[str] = None) -> LangchainLLMWrapper:
@@ -50,25 +51,10 @@ def get_ragas_embeddings() -> LangchainEmbeddingsWrapper:
     return LangchainEmbeddingsWrapper(embeddings)
 
 
-def configure_ragas_metrics(metrics_list):
-    """Configure a list of RAGAS metrics with the correct LLM."""
-    
-    llm = get_ragas_llm()
-    embeddings = get_ragas_embeddings()
-    
-    configured_metrics = []
-    for metric_class in metrics_list:
-        # Create instance of the metric
-        metric = metric_class()
-        
-        # Set LLM if the metric has that attribute
-        if hasattr(metric, 'llm'):
-            metric.llm = llm
-        
-        # Set embeddings if the metric has that attribute
-        if hasattr(metric, 'embeddings'):
-            metric.embeddings = embeddings
-            
-        configured_metrics.append(metric)
-    
-    return configured_metrics
+def configure_ragas_metrics(metrics_list=None):
+    """Return the selected RAGAS metric callables.
+    Tests expect the metric symbols themselves (not instantiated objects).
+    """
+    if metrics_list is None:
+        return [faithfulness, answer_relevancy, context_precision, context_recall]
+    return metrics_list

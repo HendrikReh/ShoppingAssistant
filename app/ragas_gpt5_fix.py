@@ -6,7 +6,6 @@ This module provides a simple solution.
 
 import os
 import logging
-from typing import Optional
 
 # Configure litellm to handle GPT-5 temperature restrictions
 import litellm

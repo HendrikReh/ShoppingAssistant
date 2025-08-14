@@ -1,7 +1,7 @@
 """Improved retrieval pipeline with query preprocessing, expansion, and fallback strategies."""
 
 import re
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 import numpy as np
 from sentence_transformers import SentenceTransformer

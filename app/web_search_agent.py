@@ -152,8 +152,9 @@ class TavilyWebSearchAgent:
         self.config = config
         self.cache = cache
         
-        # Initialize Tavily client
-        self.client = TavilyClient(api_key=config.api_key)
+        # Initialize Tavily client only when needed to allow caching-only fast paths
+        self._lazy_api_key = config.api_key
+        self.client: Optional[TavilyClient] = None
         
         # Thread pool for parallel searches
         self.executor = ThreadPoolExecutor(max_workers=3)
@@ -201,6 +202,8 @@ class TavilyWebSearchAgent:
             
             # Perform search
             logger.info(f"Performing Tavily search: {query[:50]}...")
+            if self.client is None:
+                self.client = TavilyClient(api_key=self._lazy_api_key)
             response = self.client.search(**search_params)
             
             # Parse results

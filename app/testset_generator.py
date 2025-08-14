@@ -10,13 +10,10 @@ This module generates realistic test datasets based on actual products in the ca
 import json
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 from dataclasses import dataclass, field
-import re
 from collections import defaultdict
 
-import typer
-from typing_extensions import Annotated
 
 
 @dataclass

@@ -180,7 +180,12 @@ uv run pytest tests/test_vector_search.py  # Test vector search
 - **See**: `docs/CROSS_ENCODER_COMPARISON.md` for detailed benchmarks
 
 ### Key Components
-- **app/cli.py**: Typer-based CLI with commands for ingestion, search, chat, and evaluation
+- **app/cli.py**: Typer-based CLI that registers commands and delegates to modular implementations
+- **app/commands/**: Modularized CLI command implementations
+  - `ingest.py`: ingestion logic
+  - `chat.py`: chat and interactive loop
+  - `web.py`: `check-price`, `find-alternatives`
+  - `eval.py`: `eval-search`, `eval-chat` lightweight reporters
 - **app/llm_config.py**: Centralized LLM configuration supporting OpenAI and LiteLLM proxy
 - **notebooks/ecommerce_analysis.py**: Marimo notebook for interactive data analysis and visualization using Plotly
 - **notebooks/ingest_embeddings.py**: Marimo notebook for ingesting products and reviews into Qdrant vector database using all-MiniLM-L6-v2 embeddings
@@ -188,6 +193,12 @@ uv run pytest tests/test_vector_search.py  # Test vector search
 - **main.py**: Entry point for the application (to be expanded)
 
 ### Recent Changes
+
+#### Session 2025-08-13 Refactor
+
+- Split `app/cli.py` into smaller modules under `app/commands/` while preserving the CLI surface and flags
+- Delegated `ingest`, `chat` (interactive), `check-price`, `find-alternatives`, `eval-search`, and `eval-chat`
+- `app/cli.py` remains the entrypoint for Typer and stability
 
 #### Session 2025-08-13 Updates
 

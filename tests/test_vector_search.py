@@ -50,7 +50,7 @@ def test_vector_search_with_fix():
             else:
                 print(f"✗ {original_id} -> NOT found in dict")
     
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Total vector results: {len(prod_vec_raw)}")
     print(f"  Successfully mapped: {successful_mappings}")
     print(f"  Mapping success rate: {successful_mappings/len(prod_vec_raw)*100:.1f}%")

@@ -1,6 +1,6 @@
 [project]
 name = "shoppingassistant"
-version = "0.1.0"
+version = "1.1.2"
 description = "Shopping Assistant is an advanced e-commerce search and recommendation system that combines data analysis, retrieval augmented generation (RAG), and machine learning capabilities. It processes product and review data to provide intelligent search, ranking, and business insights."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,7 +33,6 @@ dependencies = [
     "email-validator>=2.2.0",
     "fastapi-sso>=0.18.0",
     "python-dotenv>=1.1.1",
-    "dotenv>=0.9.9",
     "schedule>=1.2.2",
     "rich>=14.1.0",
     "langchain-openai>=0.3.28",

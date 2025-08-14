@@ -52,7 +52,7 @@ def test_new_cross_encoder():
         print(f"   {i}. Score: {score:.4f} | {product}")
     
     # Compare with old model (optional)
-    print(f"\n4. Comparison with old model (L-6):")
+    print("\n4. Comparison with old model (L-6):")
     try:
         ce_old = CrossEncoder(old_model_name, device="cpu")
         scores_old = ce_old.predict(pairs, show_progress_bar=False)

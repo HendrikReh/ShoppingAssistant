@@ -251,25 +251,23 @@ class ImprovedRetriever:
         # Get vector results - use full expanded query
         vector_scores = vector_func(query)
         
-        # Improved RRF fusion with adjusted weights
-        fused_scores = {}
-        
-        # Weight BM25 higher for keyword queries
+        # Rank-based RRF fusion to avoid mixing incomparable score scales
+        bm25_sorted = sorted(bm25_scores, key=lambda x: x[1], reverse=True)
+        vec_sorted = sorted(vector_scores, key=lambda x: x[1], reverse=True)
+
+        fused_scores: Dict[str, float] = {}
+
         bm25_weight = 1.2 if len(keywords) > 0 else 1.0
         vector_weight = 1.0
-        
-        # Add BM25 scores
-        for doc_id, score in bm25_scores:
-            fused_scores[doc_id] = bm25_weight / (self.rrf_k + score)
-        
-        # Add vector scores
-        for doc_id, score in vector_scores:
-            if doc_id in fused_scores:
-                fused_scores[doc_id] += vector_weight / (self.rrf_k + score)
-            else:
-                fused_scores[doc_id] = vector_weight / (self.rrf_k + score)
-        
-        # Sort by fused score
+
+        # Add BM25 ranks
+        for rank_idx, (doc_id, _score) in enumerate(bm25_sorted, start=1):
+            fused_scores[doc_id] = fused_scores.get(doc_id, 0.0) + bm25_weight / (self.rrf_k + rank_idx)
+
+        # Add vector ranks
+        for rank_idx, (doc_id, _score) in enumerate(vec_sorted, start=1):
+            fused_scores[doc_id] = fused_scores.get(doc_id, 0.0) + vector_weight / (self.rrf_k + rank_idx)
+
         results = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
         
         return results
