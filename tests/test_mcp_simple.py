@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 # Add project to path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_server_structure():
     """Test that MCP server can be imported and has tools registered."""
@@ -53,13 +53,15 @@ def test_server_structure():
         for resource in resources:
             print(f"  - {resource}")
         
-        return True
+        # Assert to validate the test passed
+        assert len(tools) >= 4, "Should have at least 4 tools"
+        assert mcp.name, "MCP server should have a name"
         
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise  # Re-raise the exception for pytest
 
 def test_client_structure():
     """Test that MCP client can be imported."""
@@ -93,13 +95,16 @@ def test_client_structure():
         agent = get_mcp_agent()
         print("✅ get_mcp_agent() works")
         
-        return True
+        # Assert to validate the test passed
+        assert client is not None, "Client should be instantiated"
+        assert adapter is not None, "Adapter should be instantiated"
+        assert agent is not None, "Agent should be instantiated"
         
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise  # Re-raise the exception for pytest
 
 def main():
     """Run structure tests."""

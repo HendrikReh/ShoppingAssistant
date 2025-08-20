@@ -11,12 +11,15 @@ import json
 import os
 from pathlib import Path
 import sys
+import pytest
 
 # Add project to path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.mcp.tavily_mcp_client import TavilyMCPClient, TavilyMCPAdapter
 
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_mcp_client():
     """Test the MCP client directly."""
     print("\n" + "="*60)

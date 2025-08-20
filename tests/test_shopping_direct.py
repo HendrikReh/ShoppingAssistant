@@ -8,10 +8,13 @@ This tests the server functions directly without MCP protocol.
 import asyncio
 import sys
 from pathlib import Path
+import pytest
 
 # Add project to path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_direct():
     """Test server functions directly."""
     print("\n" + "="*60)

@@ -11,10 +11,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 import sys
+import pytest
 
 # Add project to path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+@pytest.mark.asyncio
 async def test_mcp_with_mock():
     """Test MCP client with mocked server responses."""
     print("\n" + "="*60)

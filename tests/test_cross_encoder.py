@@ -77,7 +77,9 @@ def test_new_cross_encoder():
     print("• Better at understanding nuanced relevance")
     print("• Still fast enough for real-time use (50-100 docs/sec)")
     
-    return True
+    # Assert to validate the test passed
+    assert len(scores_new) == len(candidates), "Should score all candidates"
+    assert all(-100 < score < 100 for score in scores_new), "Scores should be in reasonable range"
 
 if __name__ == "__main__":
     test_new_cross_encoder()
