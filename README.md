@@ -7,12 +7,18 @@ An advanced e-commerce search and recommendation system that combines data analy
 - **Semantic Search**: Vector search using Qdrant with all-MiniLM-L6-v2 embeddings (384-dim)
 - **Hybrid Retrieval**: Combines BM25 keyword search with semantic search using Reciprocal Rank Fusion (RRF)
 - **Cross-encoder Reranking**: Uses ms-marco-MiniLM-L-12-v2 for improved result reranking
-- **Web Search Integration** (NEW): Real-time product information via Tavily API
+- **Web Search Integration**: Real-time product information via Tavily API
   - Current prices and availability across major retailers
   - Latest professional reviews and comparisons
   - Alternative product suggestions
   - Intelligent query routing (local vs web based on intent)
   - Redis caching for performance
+- **Price & Stock Management** (NEW): Dedicated agents for inventory and pricing
+  - **Price Agent**: SQLite-based price tracking with history
+  - **Stock Agent**: Multi-warehouse inventory management
+  - Real-time price updates from web sources
+  - Stock reservation system for shopping carts
+  - Automatic reorder level monitoring
 - **Unified Interactive Mode**: Natural language interface that automatically detects search vs chat intent
   - **Automatic Search**: Type product names to search
   - **Automatic Chat**: Ask questions for recommendations
@@ -137,7 +143,7 @@ Color coding indicates relevance:
 - 🟡 **Yellow**: Medium relevance (score 0.5-0.8)
 - ⚪ **White**: Low relevance (score < 0.5)
 
-### Web Search Commands (NEW)
+### Web Search Commands
 ```bash
 # Check current prices and availability
 uv run python -m app.cli check-price "Fire TV Stick 4K"
@@ -145,6 +151,23 @@ uv run python -m app.cli check-price "Fire TV Stick 4K"
 # Find alternative products
 uv run python -m app.cli find-alternatives "Apple AirPods Pro" \
   --max-results 5
+```
+
+### Price & Stock Management (NEW)
+```bash
+# Initialize price and stock databases
+uv run python -m app.cli init-agents \
+  --max-products 100 \
+  --web  # Fetch real prices from web (requires TAVILY_API_KEY)
+
+# Check product price
+uv run python -m app.cli get-price B075X8471B
+
+# Check stock level
+uv run python -m app.cli check-stock B075X8471B --warehouse MAIN
+
+# Update prices from web
+uv run python -m app.cli update-prices --top-k 50
 ```
 
 ### Chat
@@ -291,8 +314,10 @@ ShoppingAssistant/
 - **Embeddings**: Sentence Transformers (all-MiniLM-L6-v2, 384-dim)
 - **Reranking**: Cross-encoder (ms-marco-MiniLM-L-12-v2)
 - **LLM**: OpenAI GPT-4o-mini (configurable)
+- **Databases**: SQLite (price and stock management)
 - **CLI**: Typer (command-line interface)
 - **Caching**: Redis (LRU eviction, 2GB limit)
+- **Web Search**: Tavily API (real-time product data)
 - **ML Tracking**: MLflow
 - **Evaluation**: RAGAS (context relevance, faithfulness, etc.)
 - **Visualization**: Plotly

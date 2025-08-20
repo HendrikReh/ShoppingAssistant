@@ -49,6 +49,10 @@ logging.getLogger("LiteLLM Proxy").setLevel(logging.WARNING)
 
 app = typer.Typer(help="ShoppingAssistant CLI")
 
+# Import agents (will be lazy loaded)
+_price_agent = None
+_stock_agent = None
+
 
 # Defaults aligned with notebooks
 DATA_PRODUCTS = Path("data/top_1000_products.jsonl")
@@ -1974,6 +1978,146 @@ def check_price(
       status_color = typer.colors.GREEN if avail['status'] == 'in_stock' else typer.colors.RED
       typer.secho(f"  {avail['retailer']}: {avail['status']}", fg=status_color)
 
+
+@app.command("init-agents")
+def init_agents(
+    products_path: Path = typer.Option(
+        Path("data/top_1000_products.jsonl"),
+        help="Path to products JSONL file"
+    ),
+    max_products: int = typer.Option(
+        None,
+        help="Maximum number of products to process"
+    ),
+    use_web_search: bool = typer.Option(
+        False,
+        "--web",
+        help="Fetch real prices from web (requires TAVILY_API_KEY)"
+    ),
+):
+    """Initialize price and stock databases with product data."""
+    from app.agents.init_databases import DatabaseInitializer
+    
+    typer.echo("Initializing price and stock databases...")
+    
+    # Get API key from environment
+    web_api_key = os.environ.get('TAVILY_API_KEY') if use_web_search else None
+    
+    if use_web_search and not web_api_key:
+        typer.secho("Warning: --web flag set but TAVILY_API_KEY not found", fg=typer.colors.YELLOW)
+        use_web_search = False
+    
+    # Initialize databases
+    initializer = DatabaseInitializer(
+        products_path=products_path,
+        use_web_search=use_web_search,
+        web_api_key=web_api_key
+    )
+    
+    initializer.run(max_products=max_products)
+    typer.secho("Database initialization complete!", fg=typer.colors.GREEN)
+
+
+@app.command("check-stock")
+def check_stock(
+    product_id: str = typer.Argument(..., help="Product ID to check"),
+    warehouse: str = typer.Option(
+        "MAIN",
+        help="Warehouse location (MAIN, EAST, WEST, CENTRAL)"
+    ),
+):
+    """Check stock level for a product."""
+    from app.agents.stock_agent import StockAgent
+    from app.agents.schemas import WarehouseLocation
+    
+    agent = StockAgent()
+    
+    try:
+        warehouse_loc = WarehouseLocation(warehouse)
+    except ValueError:
+        typer.secho(f"Invalid warehouse: {warehouse}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    
+    # Get stock level
+    stock = agent.get_stock_level(product_id, warehouse_loc)
+    
+    if stock:
+        typer.secho(f"\nStock for {stock.product_title}:", fg=typer.colors.CYAN)
+        typer.echo(f"  Product ID: {stock.product_id}")
+        typer.echo(f"  Warehouse: {stock.warehouse_location.value}")
+        typer.echo(f"  Available: {stock.quantity_available} units")
+        typer.echo(f"  Reserved: {stock.quantity_reserved} units")
+        typer.echo(f"  Reorder Level: {stock.reorder_level} units")
+        
+        if stock.is_low_stock:
+            typer.secho("  Status: LOW STOCK", fg=typer.colors.YELLOW)
+        elif stock.is_in_stock:
+            typer.secho("  Status: IN STOCK", fg=typer.colors.GREEN)
+        else:
+            typer.secho("  Status: OUT OF STOCK", fg=typer.colors.RED)
+    else:
+        typer.secho(f"Product {product_id} not found in {warehouse}", fg=typer.colors.RED)
+
+
+@app.command("get-price")
+def get_price(
+    product_id: str = typer.Argument(..., help="Product ID to check"),
+):
+    """Get current price for a product."""
+    from app.agents.price_agent import PriceAgent
+    
+    agent = PriceAgent()
+    
+    # Get price
+    price = agent.get_product_price(product_id)
+    
+    if price:
+        typer.secho(f"\nPrice for {price.product_title}:", fg=typer.colors.CYAN)
+        typer.echo(f"  Product ID: {price.product_id}")
+        typer.echo(f"  Current Price: ${price.current_price}")
+        typer.echo(f"  Base Price: ${price.base_price}")
+        
+        if price.is_on_sale:
+            discount = price.discount_percentage
+            typer.secho(f"  ON SALE: {discount:.1f}% off!", fg=typer.colors.GREEN)
+        
+        if price.retailer_prices:
+            typer.echo("\n  Retailer Prices:")
+            for retailer, rprice in price.retailer_prices.items():
+                typer.echo(f"    {retailer}: ${rprice}")
+    else:
+        typer.secho(f"Price not found for product {product_id}", fg=typer.colors.RED)
+
+
+@app.command("update-prices")
+def update_prices(
+    top_k: int = typer.Option(
+        100,
+        help="Number of top products to update prices for"
+    ),
+):
+    """Update product prices via web search."""
+    from app.agents.price_agent import PriceAgent
+    from app.agents.schemas import PriceUpdate
+    from app.web_search_agent import TavilyWebSearchAgent, WebSearchConfig
+    
+    # Check for API key
+    api_key = os.environ.get('TAVILY_API_KEY')
+    if not api_key:
+        typer.secho("Error: TAVILY_API_KEY not found in environment", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    
+    typer.echo(f"Updating prices for top {top_k} products...")
+    
+    # Initialize agents
+    price_agent = PriceAgent()
+    config = WebSearchConfig(api_key=api_key, max_results=5)
+    web_agent = TavilyWebSearchAgent(config)
+    
+    # Get products sorted by some criteria (you'd implement this)
+    # For now, we'll just show the concept
+    typer.secho("Price update feature requires product selection implementation", fg=typer.colors.YELLOW)
+    
 
 @app.command()
 def find_alternatives(

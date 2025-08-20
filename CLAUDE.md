@@ -77,6 +77,24 @@ uv run python -m app.cli ingest \
   --reviews-path data/100_top_reviews_of_the_top_1000_products.jsonl
 ```
 
+#### Price & Stock Management (NEW)
+```bash
+# Initialize price and stock databases with product data
+uv run python -m app.cli init-agents \
+  --products-path data/top_1000_products.jsonl \
+  --max-products 100 \
+  --web  # Fetch real prices from web (requires TAVILY_API_KEY)
+
+# Check product price
+uv run python -m app.cli get-price B075X8471B
+
+# Check stock level
+uv run python -m app.cli check-stock B075X8471B --warehouse MAIN
+
+# Update prices from web
+uv run python -m app.cli update-prices --top-k 50
+```
+
 #### Search
 ```bash
 # Interactive search mode - continuous searching with commands
@@ -186,13 +204,44 @@ uv run pytest tests/test_vector_search.py  # Test vector search
   - `chat.py`: chat and interactive loop
   - `web.py`: `check-price`, `find-alternatives`
   - `eval.py`: `eval-search`, `eval-chat` lightweight reporters
+- **app/agents/**: Price and stock management agents (NEW)
+  - `price_agent.py`: SQLite-based price tracking with history
+  - `stock_agent.py`: Multi-warehouse inventory management
+  - `init_databases.py`: Database initialization with realistic data
+  - `schemas.py`: Pydantic models for data validation
 - **app/llm_config.py**: Centralized LLM configuration supporting OpenAI and LiteLLM proxy
+- **app/databases/**: SQLite databases for price and stock data
+  - `pricing.db`: Product prices, history, retailer comparisons
+  - `inventory.db`: Stock levels, transactions, warehouse data
 - **notebooks/ecommerce_analysis.py**: Marimo notebook for interactive data analysis and visualization using Plotly
 - **notebooks/ingest_embeddings.py**: Marimo notebook for ingesting products and reviews into Qdrant vector database using all-MiniLM-L6-v2 embeddings
 - **notebooks/retrieval_fusion.py**: Hybrid search implementation with RRF and cross-encoder reranking
 - **main.py**: Entry point for the application (to be expanded)
 
 ### Recent Changes
+
+#### Session 2025-08-20 Price & Stock Agents
+
+- **Created app/agents/**: Complete price and stock management system
+  - `price_agent.py`: SQLite-based price tracking with Redis caching
+  - `stock_agent.py`: Multi-warehouse inventory management
+  - `init_databases.py`: Realistic data initialization with web price fetching
+  - `schemas.py`: Comprehensive Pydantic models for validation
+- **Added CLI commands**:
+  - `init-agents`: Initialize databases with product data
+  - `get-price`: Retrieve current product pricing
+  - `check-stock`: Check inventory levels by warehouse
+  - `update-prices`: Update prices from web sources
+- **Features implemented**:
+  - Price history tracking with retailer comparisons
+  - Stock reservation system for shopping carts
+  - Automatic reorder level monitoring
+  - Multi-warehouse stock transfers
+  - Real-time web price fetching via Tavily
+  - Redis caching for price data (2-hour TTL)
+- **Database schemas**:
+  - `pricing.db`: products_pricing, price_history tables
+  - `inventory.db`: inventory, stock_transactions tables
 
 #### Session 2025-08-13 Refactor
 
@@ -471,6 +520,7 @@ uv run pytest tests/test_vector_search.py  # Test vector search
   - Qdrant for vector search (all-MiniLM-L6-v2 embeddings, 384-dim)
   - Reciprocal Rank Fusion (RRF) for hybrid search
   - Cross-encoder reranking (ms-marco-MiniLM-L-12-v2)
+- **Databases**: SQLite for price and inventory management
 - **Web API**: FastAPI for serving endpoints
 - **External Data**: Tavily for web search integration
 - **CLI**: Typer for command-line interface
