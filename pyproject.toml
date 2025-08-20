@@ -37,6 +37,9 @@ dependencies = [
     "rich>=14.1.0",
     "langchain-openai>=0.3.28",
     "datasets>=4.0.0",
+    "mcp>=1.13.0",
+    "uvloop>=0.21.0",
+    "fastmcp>=2.11.3",
 ]
 
 [dependency-groups]
